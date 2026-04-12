@@ -26,6 +26,7 @@
 #include "mysqlnd_statistics.h"
 #include "mysqlnd_debug.h"
 #include "mysqlnd_ext_plugin.h"
+#include "mysqlnd_ps.h"
 
 /* {{{ mysqlnd_result_unbuffered::free_result */
 static void
@@ -83,7 +84,7 @@ MYSQLND_METHOD(mysqlnd_res, free_result_buffers)(MYSQLND_RES * result)
 
 	mysqlnd_result_free_prev_data(result);
 
-	if (result->meta) {
+	if (result->meta && !result->meta->ref_count) {
 		ZEND_ASSERT(zend_arena_contains(result->memory_pool->arena, result->meta));
 		result->meta->m->free_metadata(result->meta);
 		result->meta = NULL;
@@ -263,15 +264,27 @@ mysqlnd_query_read_result_set_header(MYSQLND_CONN_DATA * conn, MYSQLND_STMT * s)
 				if (!stmt) {
 					result = conn->current_result = conn->m->result_init(rset_header.field_count);
 				} else {
-					if (!stmt->result) {
-						DBG_INF("This is 'SHOW'/'EXPLAIN'-like query.");
+					if (rset_header.field_count) {
+						if (!stmt->result || rset_header.field_count != stmt->result->field_count ||
+						rset_header.has_metadata) {
+							if (stmt->result) {
+								stmt->result->m.free_result(stmt->result, TRUE);
+							}
+							stmt->result = conn->m->result_init(rset_header.field_count);
+							stmt->field_count = rset_header.field_count;
+						}
+					}
+					result = stmt->result;
+
+//					if (!stmt->result) {
+//						DBG_INF("This is 'SHOW'/'EXPLAIN'-like query.");
 						/*
 						  This is 'SHOW'/'EXPLAIN'-like query. Current implementation of
 						  prepared statements can't send result set metadata for these queries
 						  on prepare stage. Read it now.
 						*/
-						result = stmt->result = conn->m->result_init(rset_header.field_count);
-					} else {
+//						result = stmt->result = conn->m->result_init(rset_header.field_count);
+//					} else {
 						/*
 						  Update result set metadata if it for some reason changed between
 						  prepare and execute, i.e.:
@@ -284,12 +297,13 @@ mysqlnd_query_read_result_set_header(MYSQLND_CONN_DATA * conn, MYSQLND_STMT * s)
 						  COM_STMT_EXECUTE (even if it is not necessary), so either this or
 						  previous branch always works.
 						*/
-						if (rset_header.field_count != stmt->result->field_count) {
-							stmt->result->m.free_result(stmt->result, TRUE);
-							stmt->result = conn->m->result_init(rset_header.field_count);
-						}
-						result = stmt->result;
-					}
+//						if (rset_header.field_count != stmt->result->field_count ||
+//							rset_header.has_metadata) {
+//							stmt->result->m.free_result(stmt->result, TRUE);
+//							stmt->result = conn->m->result_init(rset_header.field_count);
+//						}
+//						result = stmt->result;
+//					}
 				}
 				if (!result) {
 					SET_OOM_ERROR(conn->error_info);
@@ -297,14 +311,34 @@ mysqlnd_query_read_result_set_header(MYSQLND_CONN_DATA * conn, MYSQLND_STMT * s)
 					break;
 				}
 
-				if (FAIL == (ret = result->m.read_result_metadata(result, conn))) {
-					/* For PS, we leave them in Prepared state */
-					if (!stmt && conn->current_result) {
-						conn->current_result->m.free_result(conn->current_result, TRUE);
-						conn->current_result = NULL;
+				if (rset_header.has_metadata) {
+					if (stmt && METADATA_CACHING_SUPPORTED(conn)) {
+						if (stmt->metadata_cache_result) {
+							if (stmt->metadata_cache_result->meta)
+								stmt->metadata_cache_result->meta->ref_count= 0;
+							stmt->metadata_cache_result->m.free_result(stmt->metadata_cache_result, TRUE);
+						}
+						stmt->metadata_cache_result = conn->m->result_init(stmt->field_count);
+						result = stmt->metadata_cache_result;
 					}
-					DBG_ERR("Error occurred while reading metadata");
-					break;
+					if (FAIL == (ret = result->m.read_result_metadata(result, conn))) {
+						/* For PS, we leave them in Prepared state */
+						if (!stmt && conn->current_result) {
+							conn->current_result->m.free_result(conn->current_result, TRUE);
+							conn->current_result = NULL;
+						}
+						DBG_ERR("Error occurred while reading metadata");
+						break;
+					}
+					if (stmt && METADATA_CACHING_SUPPORTED(conn)) {
+						stmt->metadata_cache_result->meta->ref_count = 1;
+						stmt->result->meta = stmt->metadata_cache_result->meta;
+					}
+				} else {
+					if (stmt->metadata_cache_result) {
+						stmt->metadata_cache_result->meta->ref_count= 1;
+						result->meta= stmt->metadata_cache_result->meta;
+					}
 				}
 
 				/* Check for SERVER_STATUS_MORE_RESULTS if needed */

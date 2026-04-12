@@ -1,5 +1,5 @@
 /* This is a generated file, edit mysqli.stub.php instead.
- * Stub hash: c0af8c627a063fbd2c8b76c63b5e70c8ddd1e4f9 */
+ * Stub hash: 97e40a2f388f2ebe1e747d07c230de1126fc9385 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_MASK_EX(arginfo_mysqli_affected_rows, 0, 1, MAY_BE_LONG|MAY_BE_STRING)
 	ZEND_ARG_OBJ_INFO(0, mysql, mysqli, 0)
@@ -77,6 +77,11 @@ ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_mysqli_stmt_execute, 0, 1, _IS_B
 ZEND_END_ARG_INFO()
 
 #define arginfo_mysqli_execute arginfo_mysqli_stmt_execute
+
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_mysqli_stmt_execute_many, 0, 2, _IS_BOOL, 0)
+	ZEND_ARG_OBJ_INFO(0, statement, mysqli_stmt, 0)
+	ZEND_ARG_TYPE_INFO(0, rows, IS_ARRAY, 1)
+ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_RETURN_OBJ_TYPE_MASK_EX(arginfo_mysqli_execute_query, 0, 2, mysqli_result, MAY_BE_BOOL)
 	ZEND_ARG_OBJ_INFO(0, mysql, mysqli, 0)
@@ -671,6 +676,11 @@ ZEND_BEGIN_ARG_WITH_TENTATIVE_RETURN_TYPE_INFO_EX(arginfo_class_mysqli_stmt_exec
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, params, IS_ARRAY, 1, "null")
 ZEND_END_ARG_INFO()
 
+ZEND_BEGIN_ARG_WITH_TENTATIVE_RETURN_TYPE_INFO_EX(arginfo_class_mysqli_stmt_execute_many, 0, 2, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, types, IS_STRING, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, rows, Traversable, MAY_BE_ARRAY, NULL)
+ZEND_END_ARG_INFO()
+
 ZEND_BEGIN_ARG_WITH_TENTATIVE_RETURN_TYPE_INFO_EX(arginfo_class_mysqli_stmt_fetch, 0, 0, _IS_BOOL, 1)
 ZEND_END_ARG_INFO()
 
@@ -724,6 +734,7 @@ ZEND_FUNCTION(mysqli_errno);
 ZEND_FUNCTION(mysqli_error);
 ZEND_FUNCTION(mysqli_error_list);
 ZEND_FUNCTION(mysqli_stmt_execute);
+ZEND_FUNCTION(mysqli_stmt_execute_many);
 ZEND_FUNCTION(mysqli_execute_query);
 ZEND_FUNCTION(mysqli_fetch_field);
 ZEND_FUNCTION(mysqli_fetch_fields);
@@ -838,6 +849,7 @@ static const zend_function_entry ext_functions[] = {
 	ZEND_FE(mysqli_error_list, arginfo_mysqli_error_list)
 	ZEND_FE(mysqli_stmt_execute, arginfo_mysqli_stmt_execute)
 	ZEND_RAW_FENTRY("mysqli_execute", zif_mysqli_stmt_execute, arginfo_mysqli_execute, ZEND_ACC_DEPRECATED, NULL, NULL)
+	ZEND_FE(mysqli_stmt_execute_many, arginfo_mysqli_stmt_execute_many)
 	ZEND_FE(mysqli_execute_query, arginfo_mysqli_execute_query)
 	ZEND_FE(mysqli_fetch_field, arginfo_mysqli_fetch_field)
 	ZEND_FE(mysqli_fetch_fields, arginfo_mysqli_fetch_fields)
@@ -1006,6 +1018,7 @@ static const zend_function_entry class_mysqli_stmt_methods[] = {
 	ZEND_RAW_FENTRY("close", zif_mysqli_stmt_close, arginfo_class_mysqli_stmt_close, ZEND_ACC_PUBLIC, NULL, NULL)
 	ZEND_RAW_FENTRY("data_seek", zif_mysqli_stmt_data_seek, arginfo_class_mysqli_stmt_data_seek, ZEND_ACC_PUBLIC, NULL, NULL)
 	ZEND_RAW_FENTRY("execute", zif_mysqli_stmt_execute, arginfo_class_mysqli_stmt_execute, ZEND_ACC_PUBLIC, NULL, NULL)
+	ZEND_RAW_FENTRY("execute_many", zif_mysqli_stmt_execute_many, arginfo_class_mysqli_stmt_execute_many, ZEND_ACC_PUBLIC, NULL, NULL)
 	ZEND_RAW_FENTRY("fetch", zif_mysqli_stmt_fetch, arginfo_class_mysqli_stmt_fetch, ZEND_ACC_PUBLIC, NULL, NULL)
 	ZEND_RAW_FENTRY("get_warnings", zif_mysqli_stmt_get_warnings, arginfo_class_mysqli_stmt_get_warnings, ZEND_ACC_PUBLIC, NULL, NULL)
 	ZEND_RAW_FENTRY("result_metadata", zif_mysqli_stmt_result_metadata, arginfo_class_mysqli_stmt_result_metadata, ZEND_ACC_PUBLIC, NULL, NULL)
@@ -1047,6 +1060,13 @@ static void register_mysqli_symbols(int module_number)
 	REGISTER_LONG_CONSTANT("MYSQLI_OPT_SSL_VERIFY_SERVER_CERT", MYSQL_OPT_SSL_VERIFY_SERVER_CERT, CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("MYSQLI_OPT_COMPRESS", MYSQL_OPT_COMPRESS, CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("MYSQLI_SERVER_PUBLIC_KEY", MYSQL_SERVER_PUBLIC_KEY, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_CLIENT_MYSQL", CLIENT_LONG_PASSWORD, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_CLIENT_LONG_FLAG", CLIENT_LONG_FLAG, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_MARIADB_CLIENT_PROGRESS", MARIADB_CLIENT_PROGRESS, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_MARIADB_CLIENT_STMT_BULK_OPERATIONS", MARIADB_CLIENT_STMT_BULK_OPERATIONS, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_MARIADB_CLIENT_EXTENDED_METADATA", MARIADB_CLIENT_EXTENDED_METADATA, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_MARIADB_CLIENT_CACHE_METADATA", MARIADB_CLIENT_CACHE_METADATA, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_MARIADB_CLIENT_BULK_UNIT_RESULTS", MARIADB_CLIENT_BULK_UNIT_RESULTS, CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("MYSQLI_CLIENT_SSL", CLIENT_SSL, CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("MYSQLI_CLIENT_COMPRESS", CLIENT_COMPRESS, CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("MYSQLI_CLIENT_INTERACTIVE", CLIENT_INTERACTIVE, CONST_PERSISTENT);
@@ -1114,6 +1134,19 @@ static void register_mysqli_symbols(int module_number)
 	REGISTER_LONG_CONSTANT("MYSQLI_TYPE_JSON", FIELD_TYPE_JSON, CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("MYSQLI_TYPE_NEWDECIMAL", FIELD_TYPE_NEWDECIMAL, CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("MYSQLI_TYPE_BIT", FIELD_TYPE_BIT, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_NONE", EXT_FIELD_TYPE_NONE, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_JSON", EXT_FIELD_TYPE_JSON, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_UUID", EXT_FIELD_TYPE_UUID, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_INET4", EXT_FIELD_TYPE_INET4, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_INET6", EXT_FIELD_TYPE_INET6, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_POINT", EXT_FIELD_TYPE_POINT, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_MULTIPOINT", EXT_FIELD_TYPE_MULTIPOINT, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_POLYGON", EXT_FIELD_TYPE_POLYGON, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_MULTIPOLYGON", EXT_FIELD_TYPE_MULTIPOLYGON, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_LINESTRING", EXT_FIELD_TYPE_LINESTRING, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_MULTILINESTRING", EXT_FIELD_TYPE_MULTILINESTRING, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_GEOMETRYCOLLECTION", EXT_FIELD_TYPE_GEOMETRYCOLLECTION, CONST_PERSISTENT);
+	REGISTER_LONG_CONSTANT("MYSQLI_EXT_TYPE_UNKNOWN", EXT_FIELD_TYPE_UNKNOWN, CONST_PERSISTENT);
 	REGISTER_LONG_CONSTANT("MYSQLI_SET_CHARSET_NAME", MYSQL_SET_CHARSET_NAME, CONST_PERSISTENT);
 	zend_constant *const_MYSQLI_NO_DATA = REGISTER_LONG_CONSTANT("MYSQLI_NO_DATA", MYSQL_NO_DATA, CONST_PERSISTENT | CONST_DEPRECATED);
 	zend_constant *const_MYSQLI_DATA_TRUNCATED = REGISTER_LONG_CONSTANT("MYSQLI_DATA_TRUNCATED", MYSQL_DATA_TRUNCATED, CONST_PERSISTENT | CONST_DEPRECATED);
@@ -1294,6 +1327,29 @@ static void register_mysqli_symbols(int module_number)
 	attribute_Deprecated_const_MYSQLI_IS_MARIADB_0->args[1].name = ZSTR_KNOWN(ZEND_STR_MESSAGE);
 }
 
+static zend_class_entry *register_class_mysqli_indicator(void)
+{
+	zend_class_entry *class_entry = zend_register_internal_enum("mysqli_indicator", IS_LONG, NULL);
+
+	zval enum_case_None_value;
+	ZVAL_LONG(&enum_case_None_value, 0);
+	zend_enum_add_case_cstr(class_entry, "None", &enum_case_None_value);
+
+	zval enum_case_Null_value;
+	ZVAL_LONG(&enum_case_Null_value, 1);
+	zend_enum_add_case_cstr(class_entry, "Null", &enum_case_Null_value);
+
+	zval enum_case_Default_value;
+	ZVAL_LONG(&enum_case_Default_value, 2);
+	zend_enum_add_case_cstr(class_entry, "Default", &enum_case_Default_value);
+
+	zval enum_case_Ignore_value;
+	ZVAL_LONG(&enum_case_Ignore_value, 3);
+	zend_enum_add_case_cstr(class_entry, "Ignore", &enum_case_Ignore_value);
+
+	return class_entry;
+}
+
 static zend_class_entry *register_class_mysqli_driver(void)
 {
 	zend_class_entry ce, *class_entry;
@@ -1418,6 +1474,18 @@ static zend_class_entry *register_class_mysqli(void)
 	zend_string *property_server_version_name = zend_string_init("server_version", sizeof("server_version") - 1, true);
 	zend_declare_typed_property(class_entry, property_server_version_name, &property_server_version_default_value, ZEND_ACC_PUBLIC, NULL, (zend_type) ZEND_TYPE_INIT_MASK(MAY_BE_LONG));
 	zend_string_release_ex(property_server_version_name, true);
+
+	zval property_server_capabilities_default_value;
+	ZVAL_UNDEF(&property_server_capabilities_default_value);
+	zend_string *property_server_capabilities_name = zend_string_init("server_capabilities", sizeof("server_capabilities") - 1, true);
+	zend_declare_typed_property(class_entry, property_server_capabilities_name, &property_server_capabilities_default_value, ZEND_ACC_PUBLIC, NULL, (zend_type) ZEND_TYPE_INIT_MASK(MAY_BE_LONG));
+	zend_string_release_ex(property_server_capabilities_name, true);
+
+	zval property_extended_server_capabilities_default_value;
+	ZVAL_UNDEF(&property_extended_server_capabilities_default_value);
+	zend_string *property_extended_server_capabilities_name = zend_string_init("extended_server_capabilities", sizeof("extended_server_capabilities") - 1, true);
+	zend_declare_typed_property(class_entry, property_extended_server_capabilities_name, &property_extended_server_capabilities_default_value, ZEND_ACC_PUBLIC, NULL, (zend_type) ZEND_TYPE_INIT_MASK(MAY_BE_LONG));
+	zend_string_release_ex(property_extended_server_capabilities_name, true);
 
 	zval property_sqlstate_default_value;
 	ZVAL_UNDEF(&property_sqlstate_default_value);

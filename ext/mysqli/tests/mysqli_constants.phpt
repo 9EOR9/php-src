@@ -145,6 +145,32 @@ $expected_constants["MYSQLI_DATA_TRUNCATED"] = true;
 $expected_constants["MYSQLI_OPT_CAN_HANDLE_EXPIRED_PASSWORDS"] = true;
 $expected_constants["MYSQLI_CLIENT_CAN_HANDLE_EXPIRED_PASSWORDS"] = true;
 
+
+$mariadb_constants = array(
+	"MYSQLI_CLIENT_MYSQL" => true,
+	"MYSQLI_CLIENT_LONG_FLAG" => true,
+	"MYSQLI_MARIADB_CLIENT_PROGRESS" => true,
+	"MYSQLI_MARIADB_CLIENT_STMT_BULK_OPERATIONS" => true,
+	"MYSQLI_MARIADB_CLIENT_EXTENDED_METADATA" => true,
+	"MYSQLI_MARIADB_CLIENT_CACHE_METADATA" => true,
+	"MYSQLI_MARIADB_CLIENT_BULK_UNIT_RESULTS" => true,
+	"MYSQLI_EXT_TYPE_NONE" => true,
+	"MYSQLI_EXT_TYPE_JSON" => true,
+	"MYSQLI_EXT_TYPE_UUID" => true,
+	"MYSQLI_EXT_TYPE_INET4" => true,
+	"MYSQLI_EXT_TYPE_INET6" => true,
+	"MYSQLI_EXT_TYPE_POINT" => true,
+	"MYSQLI_EXT_TYPE_MULTIPOINT" => true,
+	"MYSQLI_EXT_TYPE_POLYGON" => true,
+	"MYSQLI_EXT_TYPE_MULTIPOLYGON" => true,
+	"MYSQLI_EXT_TYPE_LINESTRING" => true,
+	"MYSQLI_EXT_TYPE_MULTILINESTRING" => true,
+	"MYSQLI_EXT_TYPE_GEOMETRYCOLLECTION" => true,
+	"MYSQLI_EXT_TYPE_UNKNOWN" => true,
+);
+
+$expected_constants = array_merge($expected_constants, $mariadb_constants);
+
 $unexpected_constants = array();
 
 foreach ($constants as $consts) {

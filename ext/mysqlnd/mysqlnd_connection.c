@@ -1242,6 +1242,19 @@ MYSQLND_METHOD(mysqlnd_conn_data, get_server_info)(const MYSQLND_CONN_DATA * con
 /* }}} */
 
 
+/* {{{ mysqlnd_conn_data::get_server_capabilitie */
+static uint64_t
+MYSQLND_METHOD(mysqlnd_conn_data, get_server_capabilities)(const MYSQLND_CONN_DATA * const conn)
+{
+	uint64_t caps= conn->server_capabilities;
+
+	if (!(caps & CLIENT_LONG_PASSWORD))
+		caps|= ((uint64_t)conn->extended_server_capabilities << 32);
+	return caps;
+}
+/* }}} */
+
+
 /* {{{ mysqlnd_conn_data::get_host_info */
 static const char *
 MYSQLND_METHOD(mysqlnd_conn_data, get_host_info)(const MYSQLND_CONN_DATA * const conn)
@@ -1386,7 +1399,8 @@ MYSQLND_METHOD(mysqlnd_conn_data, change_user)(MYSQLND_CONN_DATA * const conn,
 	/* XXX: passwords that have \0 inside work during auth, but in this case won't work with change user */
 	ret = mysqlnd_run_authentication(conn, user, passwd, passwd_len, db, strlen(db),
 									 conn->authentication_plugin_data, conn->options->auth_protocol,
-									0 /*charset not used*/, conn->server_capabilities, silent, TRUE/*is_change*/);
+									 0 /*charset not used*/, conn->server_capabilities, 0,
+									 silent, TRUE/*is_change*/);
 
 	/*
 	  Here we should close all statements. Unbuffered queries should not be a
@@ -1959,6 +1973,7 @@ MYSQLND_CLASS_METHODS_START(mysqlnd_conn_data)
 	MYSQLND_METHOD(mysqlnd_conn_data, get_connection_stats),
 
 	MYSQLND_METHOD(mysqlnd_conn_data, get_server_version),
+	MYSQLND_METHOD(mysqlnd_conn_data, get_server_capabilities),
 	MYSQLND_METHOD(mysqlnd_conn_data, get_server_info),
 	MYSQLND_METHOD(mysqlnd_conn_data, statistic),
 	MYSQLND_METHOD(mysqlnd_conn_data, get_host_info),

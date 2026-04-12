@@ -233,6 +233,8 @@ MYSQLI_MAP_PROPERTY_FUNC_LONG_OR_STR(link_insert_id_read, mysql_insert_id, MYSQL
 MYSQLI_MAP_PROPERTY_FUNC_LONG(link_protocol_version_read, mysql_get_proto_info, MYSQLI_GET_MYSQL(MYSQLI_STATUS_VALID), zend_ulong, ZEND_ULONG_FMT)
 MYSQLI_MAP_PROPERTY_FUNC_STR(link_server_info_read, mysql_get_server_info, MYSQLI_GET_MYSQL(MYSQLI_STATUS_VALID))
 MYSQLI_MAP_PROPERTY_FUNC_LONG(link_server_version_read, mysql_get_server_version, MYSQLI_GET_MYSQL(MYSQLI_STATUS_VALID), zend_ulong, ZEND_ULONG_FMT)
+MYSQLI_MAP_PROPERTY_FUNC_LONG(link_server_capabilities_read, mysql_get_server_capabilities, MYSQLI_GET_MYSQL(MYSQLI_STATUS_VALID), zend_ulong, ZEND_ULONG_FMT)
+MYSQLI_MAP_PROPERTY_FUNC_LONG(link_extended_server_capabilities_read, mysql_get_extended_server_capabilities, MYSQLI_GET_MYSQL(MYSQLI_STATUS_VALID), zend_ulong, ZEND_ULONG_FMT)
 MYSQLI_MAP_PROPERTY_FUNC_STR(link_sqlstate_read, mysql_sqlstate, MYSQLI_GET_MYSQL(MYSQLI_STATUS_VALID))
 MYSQLI_MAP_PROPERTY_FUNC_LONG(link_thread_id_read, mysql_thread_id, MYSQLI_GET_MYSQL(MYSQLI_STATUS_VALID), zend_ulong, ZEND_ULONG_FMT)
 MYSQLI_MAP_PROPERTY_FUNC_LONG(link_warning_count_read, mysql_warning_count, MYSQLI_GET_MYSQL(MYSQLI_STATUS_VALID), zend_ulong, ZEND_ULONG_FMT)
@@ -387,6 +389,8 @@ const mysqli_property_entry mysqli_link_property_entries[] = {
 	{"insert_id",		sizeof("insert_id") - 1,		link_insert_id_read, NULL},
 	{"server_info",		sizeof("server_info") - 1,		link_server_info_read, NULL},
 	{"server_version",	sizeof("server_version") - 1,	link_server_version_read, NULL},
+	{"server_capabilities",	sizeof("server_capabilities") - 1,	link_server_capabilities_read, NULL},
+	{"extended_server_capabilities", sizeof("extended_server_capabilities") - 1,	link_extended_server_capabilities_read, NULL},
 	{"sqlstate",		sizeof("sqlstate") - 1,			link_sqlstate_read, NULL},
 	{"protocol_version",sizeof("protocol_version") - 1,	link_protocol_version_read, NULL},
 	{"thread_id",		sizeof("thread_id") - 1, 		link_thread_id_read, NULL},

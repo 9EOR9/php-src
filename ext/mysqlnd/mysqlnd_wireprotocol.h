@@ -75,6 +75,8 @@ typedef struct st_mysqlnd_packet_greet {
 	char 		sqlstate[MYSQLND_SQLSTATE_LENGTH + 1];
 	unsigned int	error_no;
 	char		*auth_protocol;
+	/* MariaDB specific */
+	uint32_t	extended_server_capabilities;
 } MYSQLND_PACKET_GREET;
 
 
@@ -89,6 +91,7 @@ typedef struct st_mysqlnd_packet_auth {
 	uint32_t	client_flags;
 	uint32_t	max_packet_size;
 	uint8_t		charset_no;
+	uint32_t	mariadb_client_flags;
 	/* Here the packet ends. This is user supplied data */
 	bool	send_auth_data;
 	bool	is_change_user_packet;
@@ -188,6 +191,8 @@ typedef struct st_mysqlnd_packet_rset_header {
 	MYSQLND_STRING info_or_local_file;
 	/* If error packet, we use these */
 	MYSQLND_ERROR_INFO	error_info;
+	/* metada available */
+	uint8_t		has_metadata;
 } MYSQLND_PACKET_RSET_HEADER;
 
 

@@ -24,6 +24,7 @@
 #include "mysqlnd_priv.h"
 #include "mysqlnd_debug.h"
 #include "mysql_float_to_double.h"
+#include "Zend/zend_enum.h"
 
 
 enum mysqlnd_timestamp_type
@@ -603,6 +604,44 @@ mysqlnd_stmt_execute_check_n_enlarge_buffer(zend_uchar **buf, zend_uchar **p, si
 }
 /* }}} */
 
+static enum_func_status
+mysqlnd_stmt_execute_check_n_enlarge_exp_buffer(zend_uchar **buf, zend_uchar **p, size_t * buf_len, zend_uchar * const provided_buffer, size_t needed_bytes)
+{
+    const size_t overalloc = 5;
+    size_t offset = (size_t)(*p - *buf);
+    size_t left = *buf_len - offset;
+
+    if (left < (needed_bytes + overalloc)) {
+        zend_uchar *tmp_buf;
+
+        /* STRATEGY: Double the buffer size, or take the needed amount, whichever is larger */
+        size_t new_len = (*buf_len) * 2;
+        if (new_len < (offset + needed_bytes + overalloc)) {
+            new_len = offset + needed_bytes + overalloc + 1024; // Extra padding
+        }
+
+        tmp_buf = mnd_emalloc(new_len);
+        if (!tmp_buf) {
+            return FAIL;
+        }
+
+        /* Copy existing data to the new home */
+        if (offset > 0) {
+            memcpy(tmp_buf, *buf, offset);
+        }
+
+        /* Free the old buffer if it wasn't the static one provided by mysqlnd */
+        if (*buf && *buf != provided_buffer) {
+            mnd_efree(*buf);
+        }
+
+        *buf = tmp_buf;
+        *buf_len = new_len;
+        *p = *buf + offset;
+    }
+    return PASS;
+}
+
 
 /* {{{ mysqlnd_stmt_execute_prepare_param_types */
 static enum_func_status
@@ -942,6 +981,269 @@ end:
 }
 /* }}} */
 
+/* {{{ mysqlnd_stmt_execute_many_generate_request */
+enum_func_status
+mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *types, size_t types_len,
+											zval *rows, zend_uchar **request, size_t *request_len, bool *free_buffer)
+{
+	MYSQLND_STMT_DATA *stmt;
+	zend_uchar *p;
+	zend_uchar *cmd_buffer;
+	size_t cmd_buffer_length;
+	size_t i;
+	uint64_t row_count;
+	uint64_t row_num;
+	zend_object_iterator *iter;
+	HashTable *ht_rows;
+	zval *row_zv;
+	zval *val_zv;
+	zval *backing;
+	enum_func_status ret;
+	HashPosition pos;
+	char err_msg[128];
+	uint32_t col_idx;
+	HashTable *ht_row;
+
+	/* Initialization */
+	stmt = s->data;
+	row_count = 0;
+	row_num = 1;
+	iter = NULL;
+	ht_rows = NULL;
+	ret = FAIL;
+	cmd_buffer = stmt->execute_cmd_buffer.buffer;
+	cmd_buffer_length = stmt->execute_cmd_buffer.length;
+	p = cmd_buffer;
+
+	/* 1. Header: Stmt ID (4) + Flags (2) + Types (N*2) */
+	if (FAIL == mysqlnd_stmt_execute_check_n_enlarge_exp_buffer(&cmd_buffer, &p, &cmd_buffer_length,
+				stmt->execute_cmd_buffer.buffer,
+				6 + (types_len * 2))) {
+		goto oom;
+	}
+
+	int4store(p, stmt->stmt_id);
+	p += 4;
+
+	/* Flag 128: SEND_TYPES_TO_SERVER */
+	int2store(p, 128);
+	p += 2;
+
+	/* 2. Write Type IDs */
+	for (i = 0; i < types_len; i++) {
+		switch (types[i]) {
+			case '1':
+				*p++ = MYSQL_TYPE_TINY;
+				break;
+			case '2':
+				*p++ = MYSQL_TYPE_SHORT;
+				break;
+			case 'i':
+			case '4':
+				*p++ = MYSQL_TYPE_LONG;
+				break;
+			case 'I':
+			case '8':
+				*p++ = MYSQL_TYPE_LONGLONG;
+				break;
+			case 'd':
+				*p++ = MYSQL_TYPE_DOUBLE;
+				break;
+			case 's':
+				*p++ = MYSQL_TYPE_VAR_STRING;
+				break;
+			case 'n':
+				*p++ = MYSQL_TYPE_NULL;
+				break;
+			default:
+				*p++ = MYSQL_TYPE_VAR_STRING;
+				break;
+		}
+		/* Always signed (0) */
+		*p++ = 0;
+	}
+
+	/* 3. Setup Data Source */
+	ZVAL_DEREF(rows);
+	if (Z_TYPE_P(rows) == IS_OBJECT) {
+		iter = Z_OBJCE_P(rows)->get_iterator(Z_OBJCE_P(rows), rows, 0);
+		if (iter && iter->funcs->rewind) {
+			iter->funcs->rewind(iter);
+		}
+	} else if (Z_TYPE_P(rows) == IS_ARRAY) {
+		ht_rows = Z_ARRVAL_P(rows);
+		zend_hash_internal_pointer_reset_ex(ht_rows, &pos);
+	} else {
+		SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, "Rows must be an array or iterable");
+		goto err;
+	}
+
+	/* 4. Serialization Loop */
+	while (1) {
+		col_idx = 0;
+
+		if (iter) {
+			if (iter->funcs->valid(iter) != SUCCESS) {
+				break;
+			}
+			row_zv = iter->funcs->get_current_data(iter);
+		} else {
+			row_zv = zend_hash_get_current_data_ex(ht_rows, &pos);
+			if (!row_zv) {
+				break;
+			}
+		}
+
+		ZVAL_DEREF(row_zv);
+		if (Z_TYPE_P(row_zv) != IS_ARRAY) {
+			snprintf(err_msg, sizeof(err_msg), "Row %llu is not an array", (unsigned long long)row_num);
+			SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+			goto err;
+		}
+
+		ht_row = Z_ARRVAL_P(row_zv);
+		if (zend_hash_num_elements(ht_row) != types_len) {
+			/* Format: "Column count mismatch detected in row X" */
+			snprintf(err_msg, sizeof(err_msg), "Column count mismatch detected in row %llu", (unsigned long long)row_num);
+			SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+			goto err;
+		}
+
+		/* Buffer enlargement check */
+		if (FAIL == mysqlnd_stmt_execute_check_n_enlarge_exp_buffer(&cmd_buffer, &p, &cmd_buffer_length,
+					stmt->execute_cmd_buffer.buffer, 64 + (types_len * 9))) {
+			goto oom;
+		}
+
+		ZEND_HASH_FOREACH_VAL(ht_row, val_zv) {
+			ZVAL_DEREF(val_zv);
+			if (Z_TYPE_P(val_zv) == IS_OBJECT && (Z_OBJCE_P(val_zv)->ce_flags & ZEND_ACC_ENUM)) {
+				backing = zend_enum_fetch_case_value(Z_OBJ_P(val_zv));
+				if (backing && Z_TYPE_P(backing) != IS_LONG) {
+					snprintf(err_msg, sizeof(err_msg), "Type mismatch: Indicator value must be an interger in column %u at row %llu", col_idx, (unsigned long long)row_num);
+					SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+					goto err;
+				}
+				*p = (uint8_t)Z_LVAL_P(backing);
+				p++;
+			} else if (Z_TYPE_P(val_zv) == IS_NULL) {
+				*p = INDICATOR_NULL;
+				p++;
+			} else {
+				int64_t l_val;
+				*p = INDICATOR_NONE;
+				p++;
+
+				if (types[col_idx] != 'd' && types[col_idx] != 's')
+				{
+					if (Z_TYPE_P(val_zv) != IS_LONG) {
+						snprintf(err_msg, sizeof(err_msg), "Type mismatch: Integer value expected in column %u at row %llu", col_idx, (unsigned long long)row_num);
+						SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+						goto err;
+					}
+					l_val= Z_LVAL_P(val_zv);
+				}
+
+				switch (types[col_idx]) {
+					case '1':
+						if (l_val < -128 || l_val > 127) {
+							snprintf(err_msg, sizeof(err_msg), "Value %ld out of range for TINYINT in column %u at row %llu", l_val, col_idx, (unsigned long long)row_num);
+							SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+							goto err;
+						}
+						*p += (int8_t)l_val;
+						break;
+					case '2':
+						if (l_val < -32768 || l_val > 32767) {
+							snprintf(err_msg, sizeof(err_msg), "Value %ld out of range for SMALLINT in column %u at row %llu", l_val, col_idx, (unsigned long long)row_num);
+							SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+							goto err;
+						}
+
+						int2store(p, (int16_t)l_val);
+						break;
+					case 'i':
+					case '4':
+						if (l_val < -2147483648LL || l_val > 2147483647LL) {
+							snprintf(err_msg, sizeof(err_msg), "Value %ld out of range for INT in column %u at row %llu", l_val, col_idx, (unsigned long long)row_num);
+							SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+							goto err;
+						}
+
+						int4store(p, (int32_t)l_val);
+						p += 4;
+						break;
+					case 'I':
+					case '8':
+						int8store(p, (int64_t)l_val);
+						p += 8;
+						break;
+					case 'd':
+						float8store(p, Z_DVAL_P(val_zv));
+						p += 8;
+						break;
+					case 's': {
+								  zend_string *s_val;
+								  size_t s_len;
+
+								  s_val = zval_get_string(val_zv);
+								  s_len = ZSTR_LEN(s_val);
+
+								  if (FAIL == mysqlnd_stmt_execute_check_n_enlarge_exp_buffer(&cmd_buffer, &p, &cmd_buffer_length,
+											  stmt->execute_cmd_buffer.buffer, s_len + 10)) {
+									  zend_string_release(s_val);
+									  goto oom;
+								  }
+								  p = php_mysqlnd_net_store_length(p, s_len);
+								  if (s_len) {
+									  memcpy(p, ZSTR_VAL(s_val), s_len);
+									  p += s_len;
+								  }
+								  zend_string_release(s_val);
+								  break;
+							  }
+				}
+			}
+			col_idx++;
+		} ZEND_HASH_FOREACH_END();
+
+		row_count++;
+		row_num++;
+
+		if (iter) {
+			iter->funcs->move_forward(iter);
+			if (EG(exception)) {
+				goto err;
+			}
+		} else {
+			zend_hash_move_forward_ex(ht_rows, &pos);
+		}
+	}
+
+	if (row_count == 0) {
+		SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, "No data to be processed");
+		goto err;
+	}
+
+	*free_buffer = (cmd_buffer != stmt->execute_cmd_buffer.buffer);
+	*request_len = (size_t)(p - cmd_buffer);
+	*request = cmd_buffer;
+	ret = PASS;
+
+oom:
+	if (ret == FAIL) {
+		SET_OOM_ERROR(stmt->error_info);
+	}
+err:
+	if (iter) {
+		zend_iterator_dtor(iter);
+	}
+	if (ret == FAIL && cmd_buffer && cmd_buffer != stmt->execute_cmd_buffer.buffer) {
+		mnd_efree(cmd_buffer);
+	}
+	return ret;
+}
+/* }}} */
 
 /* {{{ mysqlnd_stmt_execute_generate_request */
 enum_func_status

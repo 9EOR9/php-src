@@ -27,12 +27,15 @@
 #include "mysqlnd_debug.h"
 #include "mysqlnd_block_alloc.h"
 #include "mysqlnd_ext_plugin.h"
+#include "Zend/zend_enum.h"
+#include "Zend/zend_interfaces.h"
 
 const char * const mysqlnd_not_bound_as_blob = "Can't send long data for non-string/non-binary data types";
 const char * const mysqlnd_stmt_not_prepared = "Statement not prepared";
 
 /* Exported by mysqlnd_ps_codec.c */
 enum_func_status mysqlnd_stmt_execute_generate_request(MYSQLND_STMT * const s, zend_uchar ** request, size_t *request_len, bool * free_buffer);
+enum_func_status mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *types, size_t types_len, zval *rows, zend_uchar ** request, size_t *request_len, bool * free_buffer);
 enum_func_status mysqlnd_stmt_execute_batch_generate_request(MYSQLND_STMT * const s, zend_uchar ** request, size_t *request_len, bool * free_buffer);
 
 static void mysqlnd_stmt_separate_result_bind(MYSQLND_STMT * const stmt);
@@ -175,7 +178,7 @@ MYSQLND_METHOD(mysqlnd_stmt, get_result)(MYSQLND_STMT * const s)
 
 	do {
 		result = conn->m->result_init(stmt->result->field_count);
-		if (!result) {
+		if (!result || !stmt->result->meta->fields) {
 			SET_OOM_ERROR(conn->error_info);
 			break;
 		}
@@ -441,22 +444,42 @@ MYSQLND_METHOD(mysqlnd_stmt, prepare)(MYSQLND_STMT * const s, const char * const
 	  no metadata at prepare.
 	*/
 	if (stmt->field_count) {
+		MYSQLND_RES * tmp_result = NULL;
 		MYSQLND_RES * result = conn->m->result_init(stmt->field_count);
+
 		if (!result) {
 			SET_OOM_ERROR(conn->error_info);
 			goto fail;
 		}
-		/* Allocate the result now as it is needed for the reading of metadata */
+
+		/* Link result to statement and connection */
 		stmt->result = result;
-
 		result->conn = conn->m->get_reference(conn);
-
 		result->type = MYSQLND_RES_PS_BUF;
 
-		if (FAIL == result->m.read_result_metadata(result, conn) ||
-			FAIL == mysqlnd_stmt_prepare_read_eof(s))
-		{
+		if (METADATA_CACHING_SUPPORTED(conn)) {
+			if (stmt->metadata_cache_result) {
+				stmt->metadata_cache_result->meta->ref_count = 0;
+				stmt->metadata_cache_result->m.free_result_buffers(stmt->metadata_cache_result);
+			} else {
+				stmt->metadata_cache_result = conn->m->result_init(stmt->field_count);
+			}
+
+			tmp_result = stmt->metadata_cache_result;
+		} else {
+			/* No caching: read directly into the result object */
+			tmp_result = result;
+		}
+
+		/* Pass tmp_result to the reader */
+		if (FAIL == result->m.read_result_metadata(tmp_result, conn) ||
+			FAIL == mysqlnd_stmt_prepare_read_eof(s))		{
 			goto fail;
+		}
+
+		if (METADATA_CACHING_SUPPORTED(conn)) {
+			tmp_result->meta->ref_count = 1;
+			result->meta = tmp_result->meta;
 		}
 	}
 
@@ -615,6 +638,7 @@ static enum_func_status
 MYSQLND_METHOD(mysqlnd_stmt, execute)(MYSQLND_STMT * const s)
 {
 	DBG_ENTER("mysqlnd_stmt::execute");
+
 	if (FAIL == s->m->send_execute(s, MYSQLND_SEND_EXECUTE_IMPLICIT, NULL, NULL) ||
 		FAIL == s->m->parse_execute_response(s, MYSQLND_PARSE_EXEC_RESPONSE_IMPLICIT))
 	{
@@ -624,6 +648,254 @@ MYSQLND_METHOD(mysqlnd_stmt, execute)(MYSQLND_STMT * const s)
 }
 /* }}} */
 
+/* {{{ fallback function for mysqlnd_stmt::execute_many */
+static enum_func_status
+mysqlnd_stmt_execute_many_fallback(MYSQLND_STMT * const s, const char *types, size_t types_len, zval *rows)
+{
+    MYSQLND_STMT_DATA * stmt = s ? s->data : NULL;
+    zend_object_iterator *iter = NULL;
+    HashTable *ht_rows = NULL;
+    HashPosition pos;
+    enum_func_status ret = FAIL;
+    zval dummy_zv;
+    uint64_t total_affected_rows = 0;
+    uint64_t row_nr = 0;
+    char errmsg[128];
+
+    DBG_ENTER("mysqlnd_stmt_execute_many_fallback");
+
+    if (!stmt || !stmt->conn) {
+        DBG_RETURN(FAIL);
+    }
+
+    ZVAL_NULL(&dummy_zv);
+
+    /* 1. Setup metadata types */
+    for (size_t i = 0; i < types_len; i++) {
+        enum_mysqlnd_field_types field_type;
+
+        switch (types[i]) {
+            case '1':
+            case '2':
+            case '4':
+            case '8':
+            case 'i':
+                field_type = MYSQL_TYPE_LONGLONG;
+                break;
+            case 'd':
+                field_type = MYSQL_TYPE_DOUBLE;
+                break;
+            case 's':
+            case 'b':
+            default:
+                field_type = MYSQL_TYPE_VAR_STRING;
+                break;
+        }
+        s->m->bind_one_parameter(s, (unsigned int)i, &dummy_zv, field_type);
+    }
+
+    /* 2. Setup Data Source */
+    ZVAL_DEREF(rows);
+    if (Z_TYPE_P(rows) == IS_ARRAY) {
+        ht_rows = Z_ARRVAL_P(rows);
+        zend_hash_internal_pointer_reset_ex(ht_rows, &pos);
+    } else if (Z_TYPE_P(rows) == IS_OBJECT) {
+        iter = Z_OBJCE_P(rows)->get_iterator(Z_OBJCE_P(rows), rows, 0);
+        if (iter && iter->funcs->rewind) {
+            iter->funcs->rewind(iter);
+        }
+    } else {
+        SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, "Rows must be an array or iterable");
+        goto end;
+    }
+
+    /* 3. Execution Loop */
+    while (1) {
+        zval *row_data;
+        zval *col_val;
+        HashTable *ht_row;
+        uint32_t i = 0;
+
+        if (ht_rows) {
+            if ((row_data = zend_hash_get_current_data_ex(ht_rows, &pos)) == NULL) {
+                break;
+            }
+        } else {
+            if (iter->funcs->valid(iter) != SUCCESS) {
+                break;
+            }
+            row_data = iter->funcs->get_current_data(iter);
+        }
+
+        ZVAL_DEREF(row_data);
+        if (Z_TYPE_P(row_data) != IS_ARRAY) {
+            snprintf(errmsg, sizeof(errmsg), "Row %lu is not an array", (unsigned long)row_nr + 1);
+            SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, errmsg);
+            goto end;
+        }
+
+        ht_row = Z_ARRVAL_P(row_data);
+
+        /* Validation: Ensure the row has enough columns before we start binding */
+        if (zend_hash_num_elements(ht_row) < stmt->param_count) {
+            snprintf(errmsg, sizeof(errmsg), "Column count mismatch detected in row %lu", (unsigned long)row_nr + 1);
+            SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, errmsg);
+            goto end;
+        }
+
+        ZEND_HASH_FOREACH_VAL(ht_row, col_val) {
+            if (i >= stmt->param_count) {
+                break;
+            }
+
+            ZVAL_DEREF(col_val);
+            if (Z_TYPE_P(col_val) == IS_OBJECT) {
+                SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE,
+                    "Indicator variables and objects are not supported on MySQL connections");
+                goto end;
+            }
+
+            zval_ptr_dtor(&stmt->param_bind[i].zv);
+            ZVAL_COPY(&stmt->param_bind[i].zv, col_val);
+
+            /* Clear long data flags to prevent protocol sync issues */
+            stmt->param_bind[i].flags &= ~MYSQLND_PARAM_BIND_BLOB_USED;
+
+            i++;
+        } ZEND_HASH_FOREACH_END();
+
+        stmt->send_types_to_server = 1;
+
+        /* 4. Execute */
+        if (FAIL == s->m->send_execute(s, MYSQLND_SEND_EXECUTE_IMPLICIT, NULL, NULL) ||
+            FAIL == s->m->parse_execute_response(s, MYSQLND_PARSE_EXEC_RESPONSE_IMPLICIT)) {
+            goto end;
+        }
+
+        total_affected_rows += s->data->upsert_status->affected_rows;
+        row_nr++;
+
+        if (ht_rows) {
+            zend_hash_move_forward_ex(ht_rows, &pos);
+        } else {
+            iter->funcs->move_forward(iter);
+        }
+
+        if (EG(exception)) {
+            goto end;
+        }
+    }
+
+    /* 5. Handle Empty Input (Requirement for Test 103) */
+    if (row_nr == 0) {
+        SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, "No data to be processed");
+        goto end;
+    }
+
+    /* 6. Update Final affected_rows */
+    s->data->upsert_status->affected_rows = total_affected_rows;
+    s->data->conn->upsert_status->affected_rows = total_affected_rows;
+
+    ret = PASS;
+
+end:
+    if (iter) {
+        zend_iterator_dtor(iter);
+    }
+    DBG_RETURN(ret);
+}
+/* }}} */
+
+/* {{{ mysqlnd_stmt::execute_many */
+static enum_func_status
+MYSQLND_METHOD(mysqlnd_stmt, execute_many)(MYSQLND_STMT * const s, const char *types, size_t types_len, zval *rows)
+{
+	MYSQLND_STMT_DATA * stmt = s? s->data : NULL;
+	DBG_ENTER("mysqlnd_stmt::execute_many");
+
+	if (!MYSQLND_MARIADB_FEATURE_SUPPORTED(stmt->conn, MARIADB_CLIENT_STMT_BULK_OPERATIONS)) {
+        /* fallback - we need to iterate row by row */
+		return mysqlnd_stmt_execute_many_fallback(s, types, types_len, rows);
+	}
+	if (FAIL == s->m->send_execute_many(s, MYSQLND_SEND_EXECUTE_IMPLICIT, types, types_len, rows) ||
+			FAIL == s->m->parse_execute_response(s, MYSQLND_PARSE_EXEC_RESPONSE_IMPLICIT))
+	{
+		DBG_RETURN(FAIL);
+	}
+	DBG_RETURN(PASS);
+}
+/* }}} */
+
+/* {{{ Helper to detect integer width and handle type anchoring/promotion */
+static inline enum_func_status
+mysqlnd_stmt_bulk_track_int(MYSQLND_PARAM_ARRAY_BIND *col, zend_long l)
+{
+	/* If already anchored to a non-int type (Double/String), fail */
+	if (col->type != MYSQL_TYPE_NULL &&
+		col->type != MYSQL_TYPE_TINY &&
+		col->type != MYSQL_TYPE_SHORT &&
+		col->type != MYSQL_TYPE_LONG &&
+		col->type !=  MYSQL_TYPE_LONGLONG) {
+		return FAIL;
+	}
+
+	col->type = MYSQL_TYPE_LONGLONG;
+
+	uint8_t width = (l >= -128 && l <= 127) ? 1 :
+		(l >= -32768 && l <= 32767) ? 2 :
+		(l >= -2147483648LL  && l <= 2147483647LL) ? 4 : 8;
+
+	if (width > col->max_int_bytes) {
+		col->max_int_bytes = width;
+	}
+	return PASS;
+}
+/* }}} */
+
+/* {{{ mysqlnd_stmt::send_execute_many */
+static enum_func_status
+MYSQLND_METHOD(mysqlnd_stmt, send_execute_many)(
+        MYSQLND_STMT * const s,
+        const enum_mysqlnd_send_execute_type type,
+        const char *types,
+        size_t types_len,
+        zval *rows)
+{
+    MYSQLND_STMT_DATA *stmt = s ? s->data : NULL;
+    MYSQLND_CONN_DATA *conn = stmt ? stmt->conn : NULL;
+    enum_func_status ret = FAIL;
+
+    zend_uchar *request = NULL;
+    size_t request_len = 0;
+    bool free_request = false;
+
+    DBG_ENTER("mysqlnd_stmt::send_execute_many");
+
+    if (!stmt || !conn) {
+		DBG_RETURN(FAIL);
+	}
+
+    /* 1. Generate the binary request (Streaming from iterable to buffer) */
+    ret = s->m->generate_execute_many_request(s, types, types_len, rows, &request, &request_len, &free_request);
+
+    /* 2. Dispatch to the network */
+    if (ret == PASS && request_len > 0) {
+        const MYSQLND_CSTRING payload = {(const char *) request, request_len};
+        ret = conn->command->stmt_execute_many(conn, payload);
+
+        if (ret == PASS) {
+            stmt->execute_count++;
+        }
+    }
+
+    /* 3. Cleanup */
+    if (free_request && request) {
+        mnd_efree(request);
+    }
+
+    DBG_RETURN(ret);
+}
+/* }}} */
 
 /* {{{ mysqlnd_stmt::send_execute */
 static enum_func_status
@@ -1742,6 +2014,14 @@ MYSQLND_METHOD(mysqlnd_stmt, free_stmt_content)(MYSQLND_STMT * const s)
 	}
 
 	s->m->free_stmt_result(s);
+
+	if (METADATA_CACHING_SUPPORTED(stmt->conn) && stmt->metadata_cache_result)
+	{
+		if (stmt->metadata_cache_result->meta)
+			stmt->metadata_cache_result->meta->ref_count= 0;
+		stmt->metadata_cache_result->m.free_result(stmt->metadata_cache_result, TRUE);
+	}
+
 	DBG_VOID_RETURN;
 }
 /* }}} */
@@ -1957,10 +2237,13 @@ MYSQLND_CLASS_METHODS_START(mysqlnd_stmt)
 	MYSQLND_METHOD(mysqlnd_stmt, free_result_bind),
 	MYSQLND_METHOD(mysqlnd_stmt, server_status),
 	mysqlnd_stmt_execute_generate_request,
+	mysqlnd_stmt_execute_many_generate_request,
 	mysqlnd_stmt_execute_parse_response,
 	MYSQLND_METHOD(mysqlnd_stmt, free_stmt_content),
 	MYSQLND_METHOD(mysqlnd_stmt, flush),
-	MYSQLND_METHOD(mysqlnd_stmt, free_stmt_result)
+	MYSQLND_METHOD(mysqlnd_stmt, free_stmt_result),
+	MYSQLND_METHOD(mysqlnd_stmt, send_execute_many),
+	MYSQLND_METHOD(mysqlnd_stmt, execute_many),
 MYSQLND_CLASS_METHODS_END;
 
 

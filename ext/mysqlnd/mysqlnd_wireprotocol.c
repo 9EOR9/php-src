@@ -14,7 +14,6 @@
   |          Ulf Wendel <uw@php.net>                                     |
   +----------------------------------------------------------------------+
 */
-
 #include "php.h"
 #include "mysqlnd.h"
 #include "mysqlnd_connection.h"
@@ -26,7 +25,7 @@
 
 #define BAIL_IF_NO_MORE_DATA \
 	if (UNEXPECTED((size_t)(p - begin) > packet->header.size)) { \
-		php_error_docref(NULL, E_WARNING, "Premature end of data (mysqlnd_wireprotocol.c:%u)", __LINE__); \
+		php_error_docref(NULL, E_WARNING, "Premature end of data (size: %ld) (mysqlnd_wireprotocol.c:%u)", packet->header.size, __LINE__); \
 		goto premature_end; \
 	} \
 
@@ -42,6 +41,20 @@ const char mysqlnd_read_body_name[]		= "mysqlnd_read_body";
 #define EODATA_MARKER 0xFE
 
 #define MARIADB_RPL_VERSION_HACK "5.5.5-"
+
+
+#define EXT_FIELD_TYPE_ENTRY(s,t) {s, sizeof(s) - 1, t}
+struct st_ext_field_type_map {
+  const char *name;
+  size_t len;
+  enum_mysqlnd_field_types type;
+};
+
+struct st_ext_field_type_map ext_field_type_map[] = {
+	EXT_FIELD_TYPE_ENTRY("json", MYSQL_TYPE_JSON),
+	EXT_FIELD_TYPE_ENTRY("vector", MYSQL_TYPE_VECTOR),
+	{NULL, 0, 0}
+};
 
 /* {{{ mysqlnd_command_to_text */
 const char * const mysqlnd_command_to_text[COM_END] =
@@ -450,6 +463,12 @@ php_mysqlnd_greet_read(MYSQLND_CONN_DATA * conn, void * _packet)
 			p+= (packet->authentication_plugin_data.l - SCRAMBLE_LENGTH);
 			packet->authentication_plugin_data.s = new_auth_plugin_data;
 		}
+
+		/* get MariaDB specific capabilities: MariaDB server doesn't send CLIENT_LONG_PASSWORD capability */
+		if (!(packet->server_capabilities & CLIENT_LONG_PASSWORD)) {
+			packet->extended_server_capabilities = uint4korr(pad_start + 9);
+			DBG_INF_FMT("MariaDB server_caps=%u\n", (uint32_t) packet->extended_server_capabilities);
+		}
 	}
 
 	if (packet->server_capabilities & CLIENT_PLUGIN_AUTH) {
@@ -548,8 +567,12 @@ size_t php_mysqlnd_auth_write(MYSQLND_CONN_DATA * conn, void * _packet)
 		int1store(p, packet->charset_no);
 		p++;
 
-		memset(p, 0, 23); /* filler */
-		p+= 23;
+		memset(p, 0, 19); /* filler */
+		p+= 19;
+
+		/* When connecting to MySQL mariadb_client_flags are 0 */
+		int4store(p, packet->mariadb_client_flags);
+		p+= 4;
 	}
 
 	if (packet->send_auth_data || packet->is_change_user_packet) {
@@ -1143,6 +1166,11 @@ php_mysqlnd_rset_header_read(MYSQLND_CONN_DATA * conn, void * _packet)
 						packet->server_status, packet->warning_count);
 			break;
 		default:
+			if (METADATA_CACHING_SUPPORTED(conn)) {
+				packet->has_metadata= *p++;
+			} else {
+				packet->has_metadata= 1;
+			}
 			DBG_INF("SELECT");
 			/* Result set */
 			break;
@@ -1205,6 +1233,7 @@ php_mysqlnd_rset_field_read(MYSQLND_CONN_DATA * conn, void * _packet)
 	char *root_ptr;
 	zend_ulong len;
 	MYSQLND_FIELD *meta;
+	uint8_t has_extended_type= 0;
 
 	DBG_ENTER("php_mysqlnd_rset_field_read");
 
@@ -1243,6 +1272,40 @@ php_mysqlnd_rset_field_read(MYSQLND_CONN_DATA * conn, void * _packet)
 	READ_RSET_FIELD(name);
 	READ_RSET_FIELD(org_name);
 
+	/* check if server is MariaDB and delivers extended field information */
+	if (EXTENDED_METADATA_SUPPORTED(conn)) {
+		size_t len= *p++;
+		if (len > 0) {
+			const zend_uchar	*ext_end= p + len;
+
+			if ((size_t)(ext_end - p) + 12 > packet->header.size) {
+				php_error_docref(NULL, E_WARNING, "Premature end of data (mysqlnd_wireprotocol.c:%u)", __LINE__);
+				goto premature_end;
+			}
+
+			while (p < ext_end) {
+				const zend_uchar ext_type= *p++;
+				if (ext_type < FIELD_ATTR_LAST) {
+					size_t len= 0;
+					char *s;
+					uint32_t i = 0;
+
+					len = php_mysqlnd_net_field_length(&p);
+					s = (char *)p;
+					p+= len;
+					total_len += (len + 1);
+					for (i=0; ext_field_type_map[i].name; i++) {
+						if (len == ext_field_type_map[i].len && !strncmp(s, ext_field_type_map[i].name, len)) {
+							meta->type= ext_field_type_map[i].type;
+							has_extended_type= 1;
+							break;
+						}
+					}
+				}
+			}
+		}
+	}
+
 	/* 1 byte length */
 	if (UNEXPECTED(12 != *p)) {
 		DBG_ERR_FMT("Protocol error. Server sent false length. Expected 12 got %d", (int) *p);
@@ -1262,7 +1325,10 @@ php_mysqlnd_rset_field_read(MYSQLND_CONN_DATA * conn, void * _packet)
 	meta->length = uint4korr(p);
 	p += 4;
 
-	meta->type = uint1korr(p);
+	/* MariaDB: type was already mapped via extended types */
+	if (!has_extended_type) {
+		meta->type = uint1korr(p);
+	}
 	p += 1;
 
 	meta->flags = uint2korr(p);

@@ -106,6 +106,8 @@ require_once 'skipifconnectfailure.inc';
         "protocol_version"	=> true,
         "server_info"		=> true,
         "server_version"	=> true,
+        "server_capabilities"	=> true,
+        "extended_server_capabilities"	=> true,
         "sqlstate"			=> true,
         "thread_id"			=> true,
         "warning_count"		=> true,

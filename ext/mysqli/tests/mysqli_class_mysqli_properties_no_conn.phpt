@@ -256,6 +256,8 @@ mysqli object is already closed
 mysqli object is already closed
 mysqli object is already closed
 mysqli object is already closed
+mysqli object is already closed
+mysqli object is already closed
 
 Object variables:
 
@@ -310,6 +312,8 @@ connect_error = '%s'
 mysqli object is already closed
 mysqli object is already closed
 Property access is not allowed yet
+mysqli object is already closed
+mysqli object is already closed
 mysqli object is already closed
 mysqli object is already closed
 mysqli object is already closed

@@ -70,7 +70,54 @@ const MYSQLI_OPT_COMPRESS = UNKNOWN;
  */
 const MYSQLI_SERVER_PUBLIC_KEY = UNKNOWN;
 
+/* server capabilities and mysqli_real_connect flags */
+
+/**
+ * @var int
+ * @cvalue CLIENT_LONG_PASSWORD
+ */
+const MYSQLI_CLIENT_MYSQL = UNKNOWN;
+
+/* Server capabilities for detecting MariaDB functionality */
+
+/**
+ * @var int
+ * @cvalue CLIENT_LONG_FLAG
+ */
+const MYSQLI_CLIENT_LONG_FLAG = UNKNOWN;
+
+/**
+ * @var int
+ * @cvalue MARIADB_CLIENT_PROGRESS
+ */
+const MYSQLI_MARIADB_CLIENT_PROGRESS = UNKNOWN;
+
+/**
+ * @var int
+ * @cvalue MARIADB_CLIENT_STMT_BULK_OPERATIONS
+ */
+const MYSQLI_MARIADB_CLIENT_STMT_BULK_OPERATIONS = UNKNOWN;
+
+/**
+ * @var int
+ * @cvalue MARIADB_CLIENT_EXTENDED_METADATA
+ */
+const MYSQLI_MARIADB_CLIENT_EXTENDED_METADATA = UNKNOWN;
+
+/**
+ * @var int
+ * @cvalue MARIADB_CLIENT_CACHE_METADATA
+ */
+const MYSQLI_MARIADB_CLIENT_CACHE_METADATA = UNKNOWN;
+
+/**
+ * @var int
+ * @cvalue MARIADB_CLIENT_BULK_UNIT_RESULTS
+ */
+const MYSQLI_MARIADB_CLIENT_BULK_UNIT_RESULTS = UNKNOWN;
+
 /* mysqli_real_connect flags */
+
 /**
  * @var int
  * @cvalue CLIENT_SSL
@@ -420,6 +467,71 @@ const MYSQLI_TYPE_NEWDECIMAL = UNKNOWN;
 const MYSQLI_TYPE_BIT = UNKNOWN;
 /**
  * @var int
+ * @cvalue EXT_FIELD_TYPE_NONE
+ */
+const MYSQLI_EXT_TYPE_NONE = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_JSON
+ */
+const MYSQLI_EXT_TYPE_JSON = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_UUID
+ */
+const MYSQLI_EXT_TYPE_UUID = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_INET4
+ */
+const MYSQLI_EXT_TYPE_INET4 = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_INET6
+ */
+const MYSQLI_EXT_TYPE_INET6 = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_POINT
+ */
+const MYSQLI_EXT_TYPE_POINT = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_MULTIPOINT
+ */
+const MYSQLI_EXT_TYPE_MULTIPOINT = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_POLYGON
+ */
+const MYSQLI_EXT_TYPE_POLYGON = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_MULTIPOLYGON
+ */
+const MYSQLI_EXT_TYPE_MULTIPOLYGON = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_LINESTRING
+ */
+const MYSQLI_EXT_TYPE_LINESTRING = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_MULTILINESTRING
+ */
+const MYSQLI_EXT_TYPE_MULTILINESTRING = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_GEOMETRYCOLLECTION
+ */
+const MYSQLI_EXT_TYPE_GEOMETRYCOLLECTION = UNKNOWN;
+/**
+ * @var int
+ * @cvalue EXT_FIELD_TYPE_UNKNOWN
+ */
+const MYSQLI_EXT_TYPE_UNKNOWN = UNKNOWN;
+/**
+ * @var int
  * @cvalue MYSQL_SET_CHARSET_NAME
  */
 const MYSQLI_SET_CHARSET_NAME = UNKNOWN;
@@ -597,6 +709,14 @@ const MYSQLI_TRANS_COR_NO_RELEASE = UNKNOWN;
 #[\Deprecated(since: '8.2', message: 'as it is always false')]
 const MYSQLI_IS_MARIADB = false;
 
+enum mysqli_indicator: int
+{
+    case None = 0;
+    case Null = 1;
+    case Default = 2;
+    case Ignore = 3;
+}
+
 final class mysqli_driver
 {
     /** @readonly */
@@ -696,6 +816,18 @@ class mysqli
      * @link mysqli.get-server-version
      */
     public int $server_version;
+
+    /**
+     * @readonly
+     * @link mysqli.get-server-capabilities
+     */
+    public int $server_capabilities;
+
+    /**
+     * @readonly
+     * @link mysqli.get-extended-server-capabilities
+     */
+    public int $extended_server_capabilities;
 
     /**
      * @readonly
@@ -1241,6 +1373,12 @@ class mysqli_stmt
 
     /**
      * @tentative-return-type
+     * @alias mysqli_stmt_execute_many
+     */
+    public function execute_many(string $types, iterable $rows): bool {}
+
+    /**
+     * @tentative-return-type
      * @alias mysqli_stmt_fetch
      */
     public function fetch(): ?bool {}
@@ -1311,6 +1449,7 @@ class mysqli_stmt
      */
     public function get_result(): mysqli_result|false {}
 }
+
 
 final class mysqli_warning
 {
@@ -1388,6 +1527,7 @@ function mysqli_stmt_execute(mysqli_stmt $statement, ?array $params = null): boo
 #[\Deprecated(since: '8.5', message: "use mysqli_stmt_execute() instead")]
 function mysqli_execute(mysqli_stmt $statement, ?array $params = null): bool {}
 
+function mysqli_stmt_execute_many(mysqli_stmt $statement, ?array $rows): bool {}
 function mysqli_execute_query(mysqli $mysql, string $query, ?array $params = null): mysqli_result|bool {}
 
 /** @refcount 1 */

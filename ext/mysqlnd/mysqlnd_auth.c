@@ -44,6 +44,7 @@ mysqlnd_run_authentication(
 			const char * const auth_protocol,
 			const unsigned int charset_no,
 			const zend_ulong mysql_flags,
+			const zend_ulong mariadb_flags,
 			const bool silent,
 			const bool is_change_user
 			)
@@ -117,7 +118,7 @@ mysqlnd_run_authentication(
 				goto end;
 			}
 			if (FALSE == is_change_user) {
-				ret = mysqlnd_auth_handshake(conn, user, passwd, passwd_len, db, db_len, mysql_flags,
+				ret = mysqlnd_auth_handshake(conn, user, passwd, passwd_len, db, db_len, mysql_flags, mariadb_flags,
 											charset_no,
 											first_call,
 											requested_protocol,
@@ -176,7 +177,8 @@ static enum_func_status
 mysqlnd_switch_to_ssl_if_needed(MYSQLND_CONN_DATA * const conn,
 								unsigned int charset_no,
 								const size_t server_capabilities,
-								const zend_ulong mysql_flags)
+								const zend_ulong mysql_flags,
+								const zend_ulong mariadb_client_flags)
 {
 	enum_func_status ret = FAIL;
 	const MYSQLND_CHARSET * charset;
@@ -188,7 +190,7 @@ mysqlnd_switch_to_ssl_if_needed(MYSQLND_CONN_DATA * const conn,
 
 	{
 		const size_t client_capabilities = mysql_flags;
-		ret = conn->command->enable_ssl(conn, client_capabilities, server_capabilities, charset_no);
+		ret = conn->command->enable_ssl(conn, client_capabilities, server_capabilities, charset_no, mariadb_client_flags);
 	}
 	DBG_RETURN(ret);
 }
@@ -208,18 +210,24 @@ mysqlnd_connect_run_authentication(
 			const char * const authentication_protocol,
 			const unsigned int charset_no,
 			const size_t server_capabilities,
-			const zend_ulong mysql_flags
+			const zend_ulong mysql_flags,
+			const zend_ulong mariadb_flags
 			)
 {
 	enum_func_status ret = FAIL;
 	DBG_ENTER("mysqlnd_connect_run_authentication");
 
-	ret = mysqlnd_switch_to_ssl_if_needed(conn, charset_no, server_capabilities, mysql_flags);
+	ret = mysqlnd_switch_to_ssl_if_needed(conn, charset_no, server_capabilities, mysql_flags, mariadb_flags);
 	if (PASS == ret) {
 		ret = mysqlnd_run_authentication(conn, user, passwd, passwd_len, db, db_len,
 										 authentication_plugin_data, authentication_protocol,
-										 charset_no, mysql_flags, FALSE /*silent*/, FALSE/*is_change*/);
+										 charset_no, mysql_flags, mariadb_flags, FALSE /*silent*/, FALSE/*is_change*/);
 	}
+
+	/* MariaDB 11.4 sends hash in info for TLS information */
+	if (!(conn->server_capabilities & CLIENT_LONG_PASSWORD))
+		mysqlnd_set_string(&conn->last_message, NULL, 0);
+
 	DBG_RETURN(ret);
 }
 /* }}} */
@@ -234,6 +242,7 @@ mysqlnd_auth_handshake(MYSQLND_CONN_DATA * conn,
 							  const char * const db,
 							  const size_t db_len,
 							  const zend_ulong mysql_flags,
+							  const zend_ulong mariadb_flags,
 							  const unsigned int server_charset_no,
 							  const bool use_full_blown_auth_packet,
 							  const char * const auth_protocol,
@@ -277,6 +286,10 @@ mysqlnd_auth_handshake(MYSQLND_CONN_DATA * conn,
 		conn->payload_decoder_factory->m.init_auth_packet(&auth_packet);
 
 		auth_packet.client_flags = mysql_flags;
+		if (!(conn->server_capabilities & CLIENT_LONG_PASSWORD)) {
+			auth_packet.client_flags&= ~CLIENT_LONG_PASSWORD;
+			auth_packet.mariadb_client_flags= mariadb_flags;
+		}
 		auth_packet.max_packet_size = conn->options->max_allowed_packet;
 		if (conn->options->charset_name && (charset = mysqlnd_find_charset_name(conn->options->charset_name))) {
 			auth_packet.charset_no	= charset->nr;

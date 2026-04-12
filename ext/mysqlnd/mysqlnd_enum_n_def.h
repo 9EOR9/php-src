@@ -108,9 +108,22 @@
 #define CLIENT_SSL_VERIFY_SERVER_CERT	(1UL << 30)
 #define CLIENT_REMEMBER_OPTIONS			(1UL << 31)
 
+/* MariaDB specific capabilities */
+#define MARIADB_CLIENT_PROGRESS				1	/* Progress indication */
+#define MARIADB_CLIENT_RESERVED_1			2	/* Former COM_MULTI, not in use aymore */
+#define MARIADB_CLIENT_STMT_BULK_OPERATIONS	4	/* bulk support for prepared statements, since 10.2.0 */
+#define MARIADB_CLIENT_EXTENDED_METADATA	8	/* support of extended data type/format information, since 10.5.0 */
+#define MARIADB_CLIENT_CACHE_METADATA		16	/* Do not resend metadata for prepared statements, since 10.6*/
+#define MARIADB_CLIENT_BULK_UNIT_RESULTS	32	/* permit sending unit result-set for BULK commands */
+
 #define MYSQLND_CAPABILITIES (CLIENT_LONG_PASSWORD | CLIENT_LONG_FLAG | CLIENT_TRANSACTIONS | \
 				CLIENT_PROTOCOL_41 | CLIENT_SECURE_CONNECTION | \
 				CLIENT_MULTI_RESULTS  | CLIENT_LOCAL_FILES | CLIENT_PLUGIN_AUTH)
+
+/* Add MariaDB specific capabilities here if implementation was done */
+#define MYSQLND_MARIADB_CAPABILITIES	(MARIADB_CLIENT_STMT_BULK_OPERATIONS|\
+										MARIADB_CLIENT_EXTENDED_METADATA|\
+										MARIADB_CLIENT_CACHE_METADATA)
 
 #define MYSQLND_PROTOCOL_FLAG_USE_COMPRESSION 1
 
@@ -170,6 +183,15 @@ typedef enum mysqlnd_query_type
 	QUERY_SELECT,
 	QUERY_LOAD_LOCAL
 } enum_mysqlnd_query_type;
+
+/* extended type info for MariaDB */
+typedef enum mysqlnd_field_attr
+{
+	FIELD_ATTR_DATA_TYPE_NAME = 0,
+	FIELD_ATTR_FORMAT_NAME
+} enum_mysqlnd_field_attr;
+
+#define FIELD_ATTR_LAST FIELD_ATTR_FORMAT_NAME + 1
 
 typedef enum mysqlnd_res_type
 {
@@ -304,6 +326,32 @@ typedef enum mysqlnd_server_option
 	MYSQL_OPTION_MULTI_STATEMENTS_ON,
 	MYSQL_OPTION_MULTI_STATEMENTS_OFF
 } enum_mysqlnd_server_option;
+
+typedef enum mysqlnd_param_indicator
+{
+	INDICATOR_NONE = 0,
+	INDICATOR_NULL,
+	INDICATOR_DEFAULT,
+	INDICATOR_IGNORE,
+	INDICATOR_LAST
+} enum_mysqlnd_param_indicator;
+
+typedef enum mysqlnd_ext_field_types
+{
+	EXT_FIELD_TYPE_NONE = 0,
+	EXT_FIELD_TYPE_JSON,
+	EXT_FIELD_TYPE_UUID,
+	EXT_FIELD_TYPE_INET4,
+	EXT_FIELD_TYPE_INET6,
+	EXT_FIELD_TYPE_POINT,
+	EXT_FIELD_TYPE_MULTIPOINT,
+	EXT_FIELD_TYPE_LINESTRING,
+	EXT_FIELD_TYPE_MULTILINESTRING,
+	EXT_FIELD_TYPE_POLYGON,
+	EXT_FIELD_TYPE_MULTIPOLYGON,
+	EXT_FIELD_TYPE_GEOMETRYCOLLECTION,
+	EXT_FIELD_TYPE_UNKNOWN=255
+} enum_mysqlnd_ext_field_types;
 
 
 #define FIELD_TYPE_DECIMAL		MYSQL_TYPE_DECIMAL
@@ -655,6 +703,8 @@ enum php_mysqlnd_server_command
 	COM_REAP_RESULT=240,	/* own command */
 	COM_ENABLE_SSL,			/* own command */
 	COM_HANDSHAKE,			/* own command */
+	/* Here are mariadb specific commands */
+	COM_STMT_BULK_EXECUTE= 250,
 };
 
 

@@ -32,6 +32,7 @@
 #include "zend_exceptions.h"
 #include "ext/spl/spl_exceptions.h"
 #include "zend_interfaces.h"
+#include "zend_enum.h"
 #include "mysqli_arginfo.h"
 
 ZEND_DECLARE_MODULE_GLOBALS(mysqli)
@@ -68,6 +69,7 @@ zend_class_entry *mysqli_result_class_entry;
 zend_class_entry *mysqli_driver_class_entry;
 zend_class_entry *mysqli_warning_class_entry;
 zend_class_entry *mysqli_exception_class_entry;
+zend_class_entry *mysqli_indicator_class_entry;
 
 
 typedef zend_result (*mysqli_read_t)(mysqli_object *obj, zval *rv, bool quiet);
@@ -507,6 +509,7 @@ PHP_MINIT_FUNCTION(mysqli)
 		"MySqli persistent connection", module_number);
 
 	mysqli_exception_class_entry = register_class_mysqli_sql_exception(spl_ce_RuntimeException);
+	mysqli_indicator_class_entry = register_class_mysqli_indicator();
 
 	mysqli_driver_class_entry = register_class_mysqli_driver();
 	mysqli_driver_class_entry->create_object = mysqli_objects_new;

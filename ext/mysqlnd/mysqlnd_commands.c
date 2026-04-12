@@ -359,6 +359,27 @@ MYSQLND_METHOD(mysqlnd_command, stmt_prepare)(MYSQLND_CONN_DATA * const conn, co
 }
 /* }}} */
 
+/* {{{ mysqlnd_command::stmt_execute */
+static enum_func_status
+MYSQLND_METHOD(mysqlnd_command, stmt_execute_many)(MYSQLND_CONN_DATA * conn, const MYSQLND_CSTRING payload)
+{
+	func_mysqlnd_protocol_payload_decoder_factory__send_command send_command = conn->payload_decoder_factory->m.send_command;
+	enum_func_status ret = FAIL;
+
+	DBG_ENTER("mysqlnd_command::stmt_execute");
+
+	ret = send_command(conn->payload_decoder_factory, COM_STMT_BULK_EXECUTE,
+					   (const unsigned char *) payload.s, payload.l, FALSE,
+					   &conn->state,
+					   conn->error_info,
+					   conn->upsert_status,
+					   conn->stats,
+					   conn->m->send_close,
+					   conn);
+
+	DBG_RETURN(ret);
+}
+/* }}} */
 
 /* {{{ mysqlnd_command::stmt_execute */
 static enum_func_status
@@ -482,7 +503,7 @@ MYSQLND_METHOD(mysqlnd_command, stmt_close)(MYSQLND_CONN_DATA * const conn, cons
 
 /* {{{ mysqlnd_command::enable_ssl */
 static enum_func_status
-MYSQLND_METHOD(mysqlnd_command, enable_ssl)(MYSQLND_CONN_DATA * const conn, const size_t client_capabilities, const size_t server_capabilities, const unsigned int charset_no)
+MYSQLND_METHOD(mysqlnd_command, enable_ssl)(MYSQLND_CONN_DATA * const conn, const size_t client_capabilities, const size_t server_capabilities, const unsigned int charset_no, const size_t mariadb_client_capabilities)
 {
 	enum_func_status ret = FAIL;
 	MYSQLND_PACKET_AUTH auth_packet;
@@ -520,6 +541,11 @@ MYSQLND_METHOD(mysqlnd_command, enable_ssl)(MYSQLND_CONN_DATA * const conn, cons
 	auth_packet.max_packet_size = MYSQLND_ASSEMBLED_PACKET_MAX_SIZE;
 
 	auth_packet.charset_no = charset_no;
+
+	if (!(conn->server_capabilities & CLIENT_LONG_PASSWORD)) {
+		auth_packet.client_flags&= ~CLIENT_LONG_PASSWORD;
+		auth_packet.mariadb_client_flags= mariadb_client_capabilities;
+	}
 
 #ifdef MYSQLND_SSL_SUPPORTED
 	if (client_capabilities & CLIENT_SSL) {
@@ -580,6 +606,7 @@ MYSQLND_METHOD(mysqlnd_command, handshake)(MYSQLND_CONN_DATA * const conn, const
 	const size_t db_len = database.l;
 
 	const size_t mysql_flags = client_flags;
+	const size_t mariadb_flags = (conn->server_capabilities & CLIENT_LONG_PASSWORD) ? 0 : MYSQLND_MARIADB_CAPABILITIES;
 
 	MYSQLND_PACKET_GREET greet_packet;
 
@@ -619,11 +646,13 @@ MYSQLND_METHOD(mysqlnd_command, handshake)(MYSQLND_CONN_DATA * const conn, const
 		conn->greet_charset = read_charset;
 	}
 
-	conn->server_capabilities 	= greet_packet.server_capabilities;
+	conn->server_capabilities			= greet_packet.server_capabilities;
+	conn->extended_server_capabilities	= greet_packet.extended_server_capabilities;
 
 	if (FAIL == mysqlnd_connect_run_authentication(conn, user, passwd, db, db_len, (size_t) passwd_len,
 												   greet_packet.authentication_plugin_data, greet_packet.auth_protocol,
-												   greet_packet.charset_no, greet_packet.server_capabilities, mysql_flags))
+												   greet_packet.charset_no, greet_packet.server_capabilities, mysql_flags,
+												   mariadb_flags))
 	{
 		goto err;
 	}
@@ -655,6 +684,7 @@ MYSQLND_CLASS_METHODS_START(mysqlnd_command)
 	MYSQLND_METHOD(mysqlnd_command, reap_result),
 	MYSQLND_METHOD(mysqlnd_command, stmt_prepare),
 	MYSQLND_METHOD(mysqlnd_command, stmt_execute),
+	MYSQLND_METHOD(mysqlnd_command, stmt_execute_many),
 	MYSQLND_METHOD(mysqlnd_command, stmt_fetch),
 	MYSQLND_METHOD(mysqlnd_command, stmt_reset),
 	MYSQLND_METHOD(mysqlnd_command, stmt_send_long_data),

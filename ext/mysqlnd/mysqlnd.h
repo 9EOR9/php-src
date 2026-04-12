@@ -220,6 +220,7 @@ PHPAPI zend_ulong mysqlnd_old_escape_string(char * newstr, const char * escapest
 #define mysqlnd_stmt_data_seek(stmt, row)			(stmt)->m->seek_data((stmt), (row))
 #define mysqlnd_stmt_prepare(stmt, q, qlen)			(stmt)->m->prepare((stmt), (q), (qlen))
 #define mysqlnd_stmt_execute(stmt) 					(stmt)->m->execute((stmt))
+#define mysqlnd_stmt_execute_many(stmt,t,l,r) 		(stmt)->m->execute_many((stmt),(t),(l),(r))
 #define mysqlnd_stmt_send_long_data(stmt,p,d,l) 	(stmt)->m->send_long_data((stmt), (p), (d), (l))
 #define mysqlnd_stmt_alloc_param_bind(stmt)			(stmt)->m->alloc_parameter_bind((stmt))
 #define mysqlnd_stmt_free_param_bind(stmt,bind)		(stmt)->m->free_parameter_bind((stmt), (bind))
@@ -289,6 +290,9 @@ PHPAPI void			_mysqlnd_get_client_stats(MYSQLND_STATS * stats, zval *return_valu
 
 #endif /* MYSQLND_CORE_STATISTICS_DISABLED */
 
+/* MariaDB specific feature detection */
+#define MYSQLND_MARIADB_FEATURE_SUPPORTED(conn, feature)\
+(!((conn)->server_capabilities & CLIENT_LONG_PASSWORD) && ((conn)->extended_server_capabilities & (feature) ))
 
 /* double check the class name to avoid naming conflicts when using these: */
 #define MYSQLND_METHOD(class, method) 			mysqlnd_##class##_##method##_pub

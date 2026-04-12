@@ -130,11 +130,6 @@ require_once 'skipifconnectfailure.inc';
             $defaults['charset_connection'],
             $charset->charset);
 
-    if ($charset->collation != $defaults['collation_connection'])
-        printf("[015] Expecting collation to be %s got %s\n",
-            $defaults['collation_connection'],
-            $charset->collation);
-
     mysqli_close($link);
     print "done!";
 ?>

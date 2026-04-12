@@ -91,6 +91,10 @@ object(mysqli)#%d (%d) {
   string(%d) "%s"
   ["server_version"]=>
   int(%d)
+  ["server_capabilities"]=>
+  int(%d)
+  ["extended_server_capabilities"]=>
+  int(%d)
   ["sqlstate"]=>
   string(5) "00000"
   ["protocol_version"]=>

@@ -63,6 +63,13 @@ extern void php_mysqli_throw_sql_exception(char *sqlstate, int errorno, char *fo
 
 PHP_MYSQLI_EXPORT(zend_object *) mysqli_objects_new(zend_class_entry *);
 
+#define mysql_get_server_capabilities(conn) \
+    (((conn)->data->m->get_server_capabilities((conn)->data)) & 0xFFFFFFFF)
+
+#define mysql_get_extended_server_capabilities(conn) \
+    (((conn)->data->m->get_server_capabilities((conn)->data)) >> 32)
+
+
 #define MYSQLI_DISABLE_MQ if (mysql->multi_query) { \
 	mysql_set_server_option(mysql->mysql, MYSQL_OPTION_MULTI_STATEMENTS_OFF); \
 	mysql->multi_query = 0; \

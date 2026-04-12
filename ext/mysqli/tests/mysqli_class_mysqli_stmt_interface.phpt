@@ -28,6 +28,7 @@ mysqli
         'close'             => true,
         'data_seek'         => true,
         'execute'           => true,
+        'execute_many'      => true,
         'fetch'             => true,
         'free_result'       => true,
         'get_warnings'      => true,

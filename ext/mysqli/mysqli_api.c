@@ -402,6 +402,50 @@ PHP_FUNCTION(mysqli_error)
 }
 /* }}} */
 
+/* {{{ Executed a prepared statement with array bindings */
+PHP_FUNCTION(mysqli_stmt_execute_many)
+{
+    MY_STMT *stmt;
+    zval *mysql_stmt;
+    zval *rows;
+	char *types = NULL;
+    size_t types_len = 0;
+
+	if (zend_parse_method_parameters(ZEND_NUM_ARGS(), getThis(), "Osz",
+		&mysql_stmt, mysqli_stmt_class_entry, &types, &types_len, &rows) == FAILURE) {
+		RETURN_THROWS();
+	}
+
+    MYSQLI_FETCH_RESOURCE_STMT(stmt, mysql_stmt, MYSQLI_STATUS_VALID);
+
+	if (!zend_is_iterable(rows)) {
+		zend_argument_type_error((getThis() != NULL) ? 2 : 3, "must be of type iterable, %s given", zend_zval_type_name(rows));
+		RETURN_THROWS();
+	}
+
+
+	if (mysql_stmt_param_count(stmt->stmt) != types_len)
+	{
+		zend_argument_value_error(1, "length must match the number of prepared statement parameters");
+        RETURN_THROWS();
+	}
+
+    if (Z_TYPE_P(rows) == IS_ARRAY && !zend_hash_num_elements(Z_ARRVAL_P(rows))) {
+        zend_argument_value_error(2, "cannot be empty");
+        RETURN_THROWS();
+    }
+
+    /* Call mysqlnd execute_many */
+    if (FAIL == mysqlnd_stmt_execute_many(stmt->stmt, types, types_len, rows)) {
+        MYSQLI_REPORT_STMT_ERROR(stmt->stmt);
+        RETURN_FALSE;
+    }
+
+    RETURN_TRUE;
+}
+
+/* }}} */
+
 /* {{{ Execute a prepared statement */
 PHP_FUNCTION(mysqli_stmt_execute)
 {
@@ -1198,7 +1242,7 @@ PHP_FUNCTION(mysqli_options)
 		zend_argument_value_error(ERROR_ARG_POS(2), "must be MYSQLI_INIT_COMMAND, MYSQLI_SET_CHARSET_NAME, MYSQLI_SERVER_PUBLIC_KEY, or one of the MYSQLI_OPT_* constants");
 		RETURN_THROWS();
 	}
-	
+
 	if (expected_type != Z_TYPE_P(mysql_value)) {
 		switch (expected_type) {
 			case IS_STRING:

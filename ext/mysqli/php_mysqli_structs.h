@@ -122,6 +122,8 @@ extern zend_class_entry *mysqli_result_class_entry;
 extern zend_class_entry *mysqli_driver_class_entry;
 extern zend_class_entry *mysqli_warning_class_entry;
 extern zend_class_entry *mysqli_exception_class_entry;
+extern zend_class_entry *mysqli_indicator_class_entry;
+
 extern int php_le_pmysqli(void);
 extern void php_mysqli_dtor_p_elements(void *data);
 

@@ -191,7 +191,7 @@ class my_mysqli_fake_packet_generator
         $packet->thread_id = "03000000";
         $packet->salt = "473e3f6047257c67";
         $packet->filler = "00";
-        $packet->server_capabilities = self::create_packet_item(0b1111011111111110);
+        $packet->server_capabilities = self::create_packet_item(0b1111011111111111);
         $packet->server_character_set = "08";
         $packet->server_status = self::create_packet_item(0b000000000000010);
         $packet->extended_server_capabilities = self::create_packet_item(0b1000000111111111);

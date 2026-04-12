@@ -25,6 +25,7 @@ mysqlnd_auth_handshake(MYSQLND_CONN_DATA * conn,
 						const char * const db,
 						const size_t db_len,
 						const zend_ulong mysql_flags,
+						const zend_ulong mariadb_flags,
 						const unsigned int server_charset_no,
 						const bool use_full_blown_auth_packet,
 						const char * const auth_protocol,
@@ -74,7 +75,8 @@ mysqlnd_connect_run_authentication(
 			const char * const authentication_protocol,
 			const unsigned int charset_no,
 			const size_t server_capabilities,
-			const zend_ulong mysql_flags
+	 		const zend_ulong mysql_flags,
+	 		const zend_ulong mariadb_flags
 			);
 
 enum_func_status
@@ -89,6 +91,7 @@ mysqlnd_run_authentication(
 			const char * const auth_protocol,
 			const unsigned int charset_no,
 			const zend_ulong mysql_flags,
+			const zend_ulong mariadb_flags,
 			const bool silent,
 			const bool is_change_user
 			);

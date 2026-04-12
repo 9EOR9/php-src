@@ -21,6 +21,7 @@
 #include "php.h"
 #include "mysqlnd.h"
 #include "mysqlnd_priv.h"
+#include "mysqlnd_ps.h"
 #include "mysqlnd_debug.h"
 #include "mysqlnd_statistics.h"
 #include "mysqlnd_reverse_api.h"
@@ -191,7 +192,6 @@ PHP_INI_END()
 static PHP_MINIT_FUNCTION(mysqlnd)
 {
 	REGISTER_INI_ENTRIES();
-
 	mysqlnd_library_init();
 	return SUCCESS;
 }

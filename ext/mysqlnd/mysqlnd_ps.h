@@ -18,6 +18,7 @@
 #ifndef MYSQLND_PS_H
 #define MYSQLND_PS_H
 
+
 /* PS stuff */
 typedef void (*ps_field_fetch_func)(zval * zv, const MYSQLND_FIELD * const field, const unsigned int pack_len, const zend_uchar ** row);
 
@@ -27,6 +28,13 @@ struct st_mysqlnd_perm_bind {
 	int pack_len;
 	unsigned int php_type;
 };
+
+#define METADATA_CACHING_SUPPORTED(conn)\
+(!((conn)->server_capabilities & CLIENT_LONG_PASSWORD) && ((conn->extended_server_capabilities & MARIADB_CLIENT_CACHE_METADATA)))
+
+#define EXTENDED_METADATA_SUPPORTED(conn)\
+(!((conn)->server_capabilities & CLIENT_LONG_PASSWORD) && ((conn->extended_server_capabilities & MARIADB_CLIENT_EXTENDED_METADATA)))
+
 
 extern struct st_mysqlnd_perm_bind mysqlnd_ps_fetch_functions[MYSQL_TYPE_LAST + 1];
 
