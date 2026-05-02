@@ -407,36 +407,47 @@ PHP_FUNCTION(mysqli_stmt_execute_many)
 {
     MY_STMT *stmt;
     zval *mysql_stmt;
-    zval *rows;
+    zval *data;
+	zval *control = NULL;
 	char *types = NULL;
     size_t types_len = 0;
 
-	if (zend_parse_method_parameters(ZEND_NUM_ARGS(), getThis(), "Osz",
-		&mysql_stmt, mysqli_stmt_class_entry, &types, &types_len, &rows) == FAILURE) {
+	if (zend_parse_method_parameters(ZEND_NUM_ARGS(), getThis(), "Oz|z!s!",
+		&mysql_stmt, mysqli_stmt_class_entry, &data, &control, &types, &types_len) == FAILURE) {
 		RETURN_THROWS();
 	}
 
     MYSQLI_FETCH_RESOURCE_STMT(stmt, mysql_stmt, MYSQLI_STATUS_VALID);
 
-	if (!zend_is_iterable(rows)) {
-		zend_argument_type_error((getThis() != NULL) ? 2 : 3, "must be of type iterable, %s given", zend_zval_type_name(rows));
+	if (!zend_is_iterable(data)) {
+		zend_argument_type_error(ERROR_ARG_POS(2), "must be of type iterable, %s given", zend_zval_type_name(data));
 		RETURN_THROWS();
 	}
 
-
-	if (mysql_stmt_param_count(stmt->stmt) != types_len)
-	{
-		zend_argument_value_error(1, "length must match the number of prepared statement parameters");
-        RETURN_THROWS();
-	}
-
-    if (Z_TYPE_P(rows) == IS_ARRAY && !zend_hash_num_elements(Z_ARRVAL_P(rows))) {
-        zend_argument_value_error(2, "cannot be empty");
+    if (Z_TYPE_P(data) == IS_ARRAY && !zend_hash_num_elements(Z_ARRVAL_P(data))) {
+        zend_argument_value_error(ERROR_ARG_POS(2), "cannot be empty");
         RETURN_THROWS();
     }
 
+    if (control && Z_TYPE_P(control) != IS_NULL) {
+        if (!zend_is_iterable(control)) {
+            zend_argument_type_error(ERROR_ARG_POS(3), "must be of type iterable, %s given", zend_zval_type_name(control));
+            RETURN_THROWS();
+        }
+        if (Z_TYPE_P(control) == IS_ARRAY && !zend_hash_num_elements(Z_ARRVAL_P(control))) {
+            zend_argument_value_error(ERROR_ARG_POS(3), "cannot be empty if provided");
+            RETURN_THROWS();
+        }
+    }
+
+	if (types && types_len && mysql_stmt_param_count(stmt->stmt) != types_len)
+	{
+		zend_argument_value_error(ERROR_ARG_POS(4), "length of types must match the number of prepared statement parameters");
+        RETURN_THROWS();
+	}
+
     /* Call mysqlnd execute_many */
-    if (FAIL == mysqlnd_stmt_execute_many(stmt->stmt, types, types_len, rows)) {
+    if (FAIL == mysqlnd_stmt_execute_many(stmt->stmt, data, control, types, types_len)) {
         MYSQLI_REPORT_STMT_ERROR(stmt->stmt);
         RETURN_FALSE;
     }

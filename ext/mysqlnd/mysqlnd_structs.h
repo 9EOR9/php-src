@@ -752,8 +752,8 @@ MYSQLND_CLASS_METHODS_TYPE(mysqlnd_res_meta)
 typedef enum_func_status	(*func_mysqlnd_stmt__prepare)(MYSQLND_STMT * const stmt, const char * const query, const size_t query_len);
 typedef enum_func_status	(*func_mysqlnd_stmt__send_execute)(MYSQLND_STMT * const s, const enum_mysqlnd_send_execute_type type, zval * read_cb, zval * err_cb);
 typedef enum_func_status	(*func_mysqlnd_stmt__execute)(MYSQLND_STMT * const stmt);
-typedef enum_func_status	(*func_mysqlnd_stmt__send_execute_many)(MYSQLND_STMT * const s, const enum_mysqlnd_send_execute_type type, const char *types, size_t types_len, zval *rows);
-typedef enum_func_status	(*func_mysqlnd_stmt__execute_many)(MYSQLND_STMT * const stmt, const char *types, size_t types_len, zval *rows);
+typedef enum_func_status	(*func_mysqlnd_stmt__send_execute_many)(MYSQLND_STMT * const s, const enum_mysqlnd_send_execute_type type, zval *data, zval *control, const char *types, size_t types_len);
+typedef enum_func_status	(*func_mysqlnd_stmt__execute_many)(MYSQLND_STMT * const stmt, zval *data, zval *control, const char *types, size_t types_len);
 typedef MYSQLND_RES *		(*func_mysqlnd_stmt__use_result)(MYSQLND_STMT * const stmt);
 typedef MYSQLND_RES *		(*func_mysqlnd_stmt__store_result)(MYSQLND_STMT * const stmt);
 typedef MYSQLND_RES *		(*func_mysqlnd_stmt__get_result)(MYSQLND_STMT * const stmt);
@@ -790,7 +790,7 @@ typedef	void 				(*func_mysqlnd_stmt__free_parameter_bind)(MYSQLND_STMT * const 
 typedef	void 				(*func_mysqlnd_stmt__free_result_bind)(MYSQLND_STMT * const stmt, MYSQLND_RESULT_BIND *);
 typedef unsigned int		(*func_mysqlnd_stmt__server_status)(const MYSQLND_STMT * const stmt);
 typedef enum_func_status 	(*func_mysqlnd_stmt__generate_execute_request)(MYSQLND_STMT * const s, zend_uchar ** request, size_t *request_len, bool * free_buffer);
-typedef enum_func_status 	(*func_mysqlnd_stmt__generate_execute_many_request)(MYSQLND_STMT * const s, const char *types, size_t types_len, zval *rows, zend_uchar ** request, size_t *request_len, bool * free_buffer);
+typedef enum_func_status 	(*func_mysqlnd_stmt__generate_execute_many_request)(MYSQLND_STMT * const s, zval *rows, zval *control, const char *types, size_t types_len, zend_uchar ** request, size_t *request_len, bool * free_buffer);
 typedef enum_func_status	(*func_mysqlnd_stmt__parse_execute_response)(MYSQLND_STMT * const s, enum_mysqlnd_parse_exec_response_type type);
 typedef void 				(*func_mysqlnd_stmt__free_stmt_content)(MYSQLND_STMT * const s);
 typedef enum_func_status	(*func_mysqlnd_stmt__flush)(MYSQLND_STMT * const stmt);

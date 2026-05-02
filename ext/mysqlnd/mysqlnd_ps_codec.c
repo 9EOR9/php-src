@@ -983,8 +983,15 @@ end:
 
 /* {{{ mysqlnd_stmt_execute_many_generate_request */
 enum_func_status
-mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *types, size_t types_len,
-											zval *rows, zend_uchar **request, size_t *request_len, bool *free_buffer)
+mysqlnd_stmt_execute_many_generate_request(
+	MYSQLND_STMT * const s,
+	zval *rows,
+	zval *control,
+	const char *types,
+	size_t types_len,
+	zend_uchar **request,
+	size_t *request_len,
+	bool *free_buffer)
 {
 	MYSQLND_STMT_DATA *stmt;
 	zend_uchar *p;
@@ -1004,6 +1011,13 @@ mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *t
 	uint32_t col_idx;
 	HashTable *ht_row;
 
+	/* Control Logic Variables */
+	uint8_t control_is_global;
+	zend_object_iterator *control_iter;
+	HashTable *ht_control;
+	HashPosition control_pos;
+	zval *control_row_zv;
+
 	/* Initialization */
 	stmt = s->data;
 	row_count = 0;
@@ -1015,21 +1029,39 @@ mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *t
 	cmd_buffer_length = stmt->execute_cmd_buffer.length;
 	p = cmd_buffer;
 
+	control_is_global = 0;
+	control_iter = NULL;
+	ht_control = NULL;
+	control_row_zv = NULL;
+
+	/* Setup Control Source */
+	if (control && Z_TYPE_P(control) != IS_NULL) {
+		if (Z_TYPE_P(control) == IS_OBJECT) {
+			control_iter = Z_OBJCE_P(control)->get_iterator(Z_OBJCE_P(control), control, 0);
+			if (control_iter && control_iter->funcs->rewind) {
+				control_iter->funcs->rewind(control_iter);
+			}
+		} else {
+			ht_control = Z_ARRVAL_P(control);
+			zend_hash_internal_pointer_reset_ex(ht_control, &control_pos);
+			if (zend_hash_num_elements(ht_control) == 1) {
+				control_is_global = 1;
+			}
+		}
+	}
+
 	/* 1. Header: Stmt ID (4) + Flags (2) + Types (N*2) */
 	if (FAIL == mysqlnd_stmt_execute_check_n_enlarge_exp_buffer(&cmd_buffer, &p, &cmd_buffer_length,
-				stmt->execute_cmd_buffer.buffer,
-				6 + (types_len * 2))) {
+				stmt->execute_cmd_buffer.buffer, 6 + (types_len * 2))) {
 		goto oom;
 	}
 
 	int4store(p, stmt->stmt_id);
 	p += 4;
-
-	/* Flag 128: SEND_TYPES_TO_SERVER */
-	int2store(p, 128);
+	int2store(p, 128); /* SEND_TYPES_TO_SERVER */
 	p += 2;
 
-	/* 2. Write Type IDs */
+	/* Write metadata information: field_types */
 	for (i = 0; i < types_len; i++) {
 		switch (types[i]) {
 			case '1':
@@ -1038,11 +1070,10 @@ mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *t
 			case '2':
 				*p++ = MYSQL_TYPE_SHORT;
 				break;
-			case 'i':
 			case '4':
 				*p++ = MYSQL_TYPE_LONG;
 				break;
-			case 'I':
+			case 'i':
 			case '8':
 				*p++ = MYSQL_TYPE_LONGLONG;
 				break;
@@ -1059,8 +1090,7 @@ mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *t
 				*p++ = MYSQL_TYPE_VAR_STRING;
 				break;
 		}
-		/* Always signed (0) */
-		*p++ = 0;
+		*p++ = 0; /* Always signed */
 	}
 
 	/* 3. Setup Data Source */
@@ -1079,9 +1109,11 @@ mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *t
 	}
 
 	/* 4. Serialization Loop */
-	while (1) {
+	while (1)
+	{
 		col_idx = 0;
 
+		/* Fetch Data Row */
 		if (iter) {
 			if (iter->funcs->valid(iter) != SUCCESS) {
 				break;
@@ -1094,6 +1126,17 @@ mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *t
 			}
 		}
 
+		/* Fetch Control Row */
+		if (control) {
+			if (control_iter) {
+				if (control_iter->funcs->valid(control_iter) == SUCCESS) {
+					control_row_zv = control_iter->funcs->get_current_data(control_iter);
+				}
+			} else {
+				control_row_zv = zend_hash_get_current_data_ex(ht_control, &control_pos);
+			}
+		}
+
 		ZVAL_DEREF(row_zv);
 		if (Z_TYPE_P(row_zv) != IS_ARRAY) {
 			snprintf(err_msg, sizeof(err_msg), "Row %llu is not an array", (unsigned long long)row_num);
@@ -1103,105 +1146,145 @@ mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *t
 
 		ht_row = Z_ARRVAL_P(row_zv);
 		if (zend_hash_num_elements(ht_row) != types_len) {
-			/* Format: "Column count mismatch detected in row X" */
 			snprintf(err_msg, sizeof(err_msg), "Column count mismatch detected in row %llu", (unsigned long long)row_num);
 			SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
 			goto err;
 		}
 
-		/* Buffer enlargement check */
+		/* Buffer enlargement check (64 base + max 12 per col safety) */
 		if (FAIL == mysqlnd_stmt_execute_check_n_enlarge_exp_buffer(&cmd_buffer, &p, &cmd_buffer_length,
-					stmt->execute_cmd_buffer.buffer, 64 + (types_len * 9))) {
+					stmt->execute_cmd_buffer.buffer, 64 + (types_len * 12))) {
 			goto oom;
 		}
 
 		ZEND_HASH_FOREACH_VAL(ht_row, val_zv) {
-			ZVAL_DEREF(val_zv);
-			if (Z_TYPE_P(val_zv) == IS_OBJECT && (Z_OBJCE_P(val_zv)->ce_flags & ZEND_ACC_ENUM)) {
-				backing = zend_enum_fetch_case_value(Z_OBJ_P(val_zv));
-				if (backing && Z_TYPE_P(backing) != IS_LONG) {
-					snprintf(err_msg, sizeof(err_msg), "Type mismatch: Indicator value must be an interger in column %u at row %llu", col_idx, (unsigned long long)row_num);
-					SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
-					goto err;
-				}
-				*p = (uint8_t)Z_LVAL_P(backing);
-				p++;
-			} else if (Z_TYPE_P(val_zv) == IS_NULL) {
-				*p = INDICATOR_NULL;
-				p++;
-			} else {
-				int64_t l_val;
-				*p = INDICATOR_NONE;
-				p++;
+			zval *final_val = val_zv;
+			zval *control_val = NULL;
 
-				if (types[col_idx] != 'd' && types[col_idx] != 's')
+			/* Override Logic */
+			if (control_row_zv && Z_TYPE_P(control_row_zv) == IS_ARRAY) {
+				control_val = zend_hash_index_find(Z_ARRVAL_P(control_row_zv), col_idx);
+				if (control_val) {
+					bool is_none;
+					ZVAL_DEREF(control_val);
+
+					is_none = (Z_TYPE_P(control_val) == IS_OBJECT &&
+							(Z_OBJCE_P(control_val)->ce_flags & ZEND_ACC_ENUM) &&
+							Z_LVAL_P(zend_enum_fetch_case_value(Z_OBJ_P(control_val))) == INDICATOR_NONE);
+
+					if (!is_none) {
+						final_val = control_val;
+					}
+				}
+			}
+
+			ZVAL_DEREF(final_val);
+			char t = types[col_idx];
+
+			/* Handle Indicators/Enums */
+			if (Z_TYPE_P(final_val) == IS_OBJECT && (Z_OBJCE_P(final_val)->ce_flags & ZEND_ACC_ENUM)) {
+				uint8_t indicator;
+
+				backing = zend_enum_fetch_case_value(Z_OBJ_P(final_val));
+				indicator = (uint8_t)Z_LVAL_P(backing);
+
+				*p++ = indicator;
+			} else if (Z_TYPE_P(final_val) == IS_NULL) {
+				*p++ = INDICATOR_NULL;
+			} else {
+				/* INDICATOR_NONE + Value */
+				*p++ = INDICATOR_NONE;
+
+				if (t == 's')
 				{
-					if (Z_TYPE_P(val_zv) != IS_LONG) {
-						snprintf(err_msg, sizeof(err_msg), "Type mismatch: Integer value expected in column %u at row %llu", col_idx, (unsigned long long)row_num);
+					/* All-Strings Path: Convert non-strings quietly */
+					zend_string *s_val = zval_get_string(final_val);
+					size_t s_len = ZSTR_LEN(s_val);
+
+					if (FAIL == mysqlnd_stmt_execute_check_n_enlarge_exp_buffer(&cmd_buffer, &p, &cmd_buffer_length,
+								stmt->execute_cmd_buffer.buffer, s_len + 10)) {
+						zend_string_release(s_val);
+						goto oom;
+					}
+					p = php_mysqlnd_net_store_length(p, s_len);
+					if (s_len) {
+						memcpy(p, ZSTR_VAL(s_val), s_len);
+						p += s_len;
+					}
+					zend_string_release(s_val);
+				} else if (t == 'd') {
+					/* Strict Double Path */
+					double d_val;
+					if (Z_TYPE_P(final_val) == IS_DOUBLE) {
+						d_val = Z_DVAL_P(final_val);
+					} else if (Z_TYPE_P(final_val) == IS_LONG) {
+						d_val = (double)Z_LVAL_P(final_val);
+					} else {
+						snprintf(err_msg, sizeof(err_msg), "Type mismatch: Number expected in column %u at row %llu", col_idx, (unsigned long long)row_num);
 						SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
 						goto err;
 					}
-					l_val= Z_LVAL_P(val_zv);
-				}
+					float8store(p, d_val);
+					p += 8;
+				} else {
+					/* Strict Integer */
+					int64_t l_val;
 
-				switch (types[col_idx]) {
-					case '1':
-						if (l_val < -128 || l_val > 127) {
-							snprintf(err_msg, sizeof(err_msg), "Value %ld out of range for TINYINT in column %u at row %llu", l_val, col_idx, (unsigned long long)row_num);
-							SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
-							goto err;
-						}
-						*p += (int8_t)l_val;
-						break;
-					case '2':
-						if (l_val < -32768 || l_val > 32767) {
-							snprintf(err_msg, sizeof(err_msg), "Value %ld out of range for SMALLINT in column %u at row %llu", l_val, col_idx, (unsigned long long)row_num);
-							SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
-							goto err;
-						}
+					if (Z_TYPE_P(final_val) == IS_LONG)
+					{
+						l_val = Z_LVAL_P(final_val);
+					}
+					else if (Z_TYPE_P(final_val) == IS_DOUBLE)
+					{
+						l_val = (int64_t)Z_DVAL_P(final_val);
+					}
+					else
+					{
+						snprintf(err_msg, sizeof(err_msg), "Type mismatch: Integer expected in column %u at row %llu", col_idx, (unsigned long long)row_num);
+						SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+						goto err;
+					}
 
-						int2store(p, (int16_t)l_val);
-						break;
-					case 'i':
-					case '4':
-						if (l_val < -2147483648LL || l_val > 2147483647LL) {
-							snprintf(err_msg, sizeof(err_msg), "Value %ld out of range for INT in column %u at row %llu", l_val, col_idx, (unsigned long long)row_num);
-							SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
-							goto err;
-						}
-
-						int4store(p, (int32_t)l_val);
-						p += 4;
-						break;
-					case 'I':
-					case '8':
-						int8store(p, (int64_t)l_val);
-						p += 8;
-						break;
-					case 'd':
-						float8store(p, Z_DVAL_P(val_zv));
-						p += 8;
-						break;
-					case 's': {
-								  zend_string *s_val;
-								  size_t s_len;
-
-								  s_val = zval_get_string(val_zv);
-								  s_len = ZSTR_LEN(s_val);
-
-								  if (FAIL == mysqlnd_stmt_execute_check_n_enlarge_exp_buffer(&cmd_buffer, &p, &cmd_buffer_length,
-											  stmt->execute_cmd_buffer.buffer, s_len + 10)) {
-									  zend_string_release(s_val);
-									  goto oom;
-								  }
-								  p = php_mysqlnd_net_store_length(p, s_len);
-								  if (s_len) {
-									  memcpy(p, ZSTR_VAL(s_val), s_len);
-									  p += s_len;
-								  }
-								  zend_string_release(s_val);
-								  break;
-							  }
+					switch (t)
+					{
+						case '1':
+							if (l_val < -128 || l_val > 127) {
+								snprintf(err_msg, sizeof(err_msg), "Value %lld out of range for TINYINT in column %u at row %llu",
+											(long long)l_val, col_idx, (unsigned long long)row_num);
+								SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+								goto err;
+							}
+							*p++ = (int8_t)l_val;
+							break;
+						case '2':
+							if (l_val < -32768 || l_val > 32767) {
+								snprintf(err_msg, sizeof(err_msg), "Value %lld out of range for SMALLINT in column %u at row %llu",
+											(long long)l_val, col_idx, (unsigned long long)row_num);
+								SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+								goto err;
+							}
+							int2store(p, (int16_t)l_val);
+							p += 2;
+							break;
+						case '4':
+							if (l_val < -2147483648LL || l_val > 2147483647LL) {
+								snprintf(err_msg, sizeof(err_msg), "Value %lld out of range for INT in column %u at row %llu",
+											(long long)l_val, col_idx, (unsigned long long)row_num);
+								SET_CLIENT_ERROR(stmt->error_info, CR_INVALID_PARAMETER_NO, UNKNOWN_SQLSTATE, err_msg);
+								goto err;
+							}
+							int4store(p, (int32_t)l_val);
+							p += 4;
+							break;
+						case 'i':
+						case '8':
+							int8store(p, l_val);
+							p += 8;
+							break;
+						default:
+							*p++ = 0;
+							break;
+					}
 				}
 			}
 			col_idx++;
@@ -1210,13 +1293,24 @@ mysqlnd_stmt_execute_many_generate_request(MYSQLND_STMT * const s, const char *t
 		row_count++;
 		row_num++;
 
+		/* Advance Data Iterator */
 		if (iter) {
 			iter->funcs->move_forward(iter);
-			if (EG(exception)) {
-				goto err;
-			}
 		} else {
 			zend_hash_move_forward_ex(ht_rows, &pos);
+		}
+
+		/* Advance Control Iterator (if not global) */
+		if (control && !control_is_global) {
+			if (control_iter) {
+				control_iter->funcs->move_forward(control_iter);
+			} else {
+				zend_hash_move_forward_ex(ht_control, &control_pos);
+			}
+		}
+
+		if (EG(exception)) {
+			goto err;
 		}
 	}
 
@@ -1234,9 +1328,13 @@ oom:
 	if (ret == FAIL) {
 		SET_OOM_ERROR(stmt->error_info);
 	}
+
 err:
 	if (iter) {
 		zend_iterator_dtor(iter);
+	}
+	if (control_iter) {
+		zend_iterator_dtor(control_iter);
 	}
 	if (ret == FAIL && cmd_buffer && cmd_buffer != stmt->execute_cmd_buffer.buffer) {
 		mnd_efree(cmd_buffer);

@@ -1375,7 +1375,7 @@ class mysqli_stmt
      * @tentative-return-type
      * @alias mysqli_stmt_execute_many
      */
-    public function execute_many(string $types, iterable $rows): bool {}
+    public function execute_many(iterable $data, ?iterable $control = null, ?string $types = null): bool {}
 
     /**
      * @tentative-return-type

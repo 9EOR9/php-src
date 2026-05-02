@@ -1,5 +1,5 @@
 /* This is a generated file, edit mysqli.stub.php instead.
- * Stub hash: 97e40a2f388f2ebe1e747d07c230de1126fc9385 */
+ * Stub hash: d725a2c1470babd8f14e6774cb604c6e159d6a03 */
 
 ZEND_BEGIN_ARG_WITH_RETURN_TYPE_MASK_EX(arginfo_mysqli_affected_rows, 0, 1, MAY_BE_LONG|MAY_BE_STRING)
 	ZEND_ARG_OBJ_INFO(0, mysql, mysqli, 0)
@@ -676,9 +676,10 @@ ZEND_BEGIN_ARG_WITH_TENTATIVE_RETURN_TYPE_INFO_EX(arginfo_class_mysqli_stmt_exec
 	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, params, IS_ARRAY, 1, "null")
 ZEND_END_ARG_INFO()
 
-ZEND_BEGIN_ARG_WITH_TENTATIVE_RETURN_TYPE_INFO_EX(arginfo_class_mysqli_stmt_execute_many, 0, 2, _IS_BOOL, 0)
-	ZEND_ARG_TYPE_INFO(0, types, IS_STRING, 0)
-	ZEND_ARG_OBJ_TYPE_MASK(0, rows, Traversable, MAY_BE_ARRAY, NULL)
+ZEND_BEGIN_ARG_WITH_TENTATIVE_RETURN_TYPE_INFO_EX(arginfo_class_mysqli_stmt_execute_many, 0, 1, _IS_BOOL, 0)
+	ZEND_ARG_OBJ_TYPE_MASK(0, data, Traversable, MAY_BE_ARRAY, NULL)
+	ZEND_ARG_OBJ_TYPE_MASK(0, control, Traversable, MAY_BE_ARRAY|MAY_BE_NULL, "null")
+	ZEND_ARG_TYPE_INFO_WITH_DEFAULT_VALUE(0, types, IS_STRING, 1, "null")
 ZEND_END_ARG_INFO()
 
 ZEND_BEGIN_ARG_WITH_TENTATIVE_RETURN_TYPE_INFO_EX(arginfo_class_mysqli_stmt_fetch, 0, 0, _IS_BOOL, 1)
